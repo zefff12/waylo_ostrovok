@@ -8,6 +8,7 @@ import { CheckoutTab } from "./components/CheckoutTab";
 import { Backdrop, sceneFor, SCENE_LABEL } from "./components/Backdrop";
 import { GlassIcon, Icon, type IconName } from "./components/Icons";
 import { Onboarding, Splash, introSeen } from "./components/Intro";
+import { Markdown } from "./components/Markdown";
 
 const EXAMPLES = [
   "Хочу на пять дней в Санкт-Петербург в ноябре. Бюджет — 45 000 рублей на двоих. Любим красивые улицы, необычные кафе, музеи и атмосферные места для фотографий. Хотим жить недалеко от центра и не проводить весь отпуск в транспорте",
@@ -124,7 +125,9 @@ export default function App() {
           {error && <div className="toast error" role="alert"><Icon name="alert" size={17} /> <span>{error}</span> <button className="link" onClick={() => setError(null)}>Скрыть</button></div>}
           <div className={`layout ${chatOpen ? "chat-open" : ""}`}>
             <main className="panel" key={tab}>
-              {trip ? (
+              {trip && trip.status === "need_info" && !trip.days.length ? (
+                <Clarify question={[...chat].reverse().find((m) => m.role === "assistant")?.text ?? ""} busy={busy} onSend={send} />
+              ) : trip ? (
                 <>
                   {tab === "trip" && <TripTab trip={trip} busy={busy} city={cityNames[trip.params.destination ?? ""] ?? ""}
                     onDestination={(c) => run(() => api.destination(trip.id, c))}
@@ -133,8 +136,8 @@ export default function App() {
                   {tab === "walks" && <WalksTab trip={trip} busy={busy}
                     onDay={(d, a, extra) => run(() => api.day(trip.id, d, a, extra))} />}
                   {tab === "checkout" && <CheckoutTab trip={trip} busy={busy}
-                    onCheckout={(n) => run(() => api.checkout(trip.id, n))}
-                    onExtra={(k) => run(() => api.extras(trip.id, k))} />}
+                    onCheckout={(n, card) => run(() => api.checkout(trip.id, n, card))}
+                    onExtra={(k, card) => run(() => api.extras(trip.id, k, card))} />}
                 </>
               ) : <Loading busy={busy} />}
             </main>
@@ -162,7 +165,8 @@ export default function App() {
 function TripSummary({ trip, city, busy }: { trip: Trip | null; city: string; busy: boolean }) {
   if (!trip?.params.destination) return <div className="tsum"><b>{busy ? "Агент разбирает запрос…" : "Новая поездка"}</b></div>;
   const p = trip.params;
-  const start = p.start_date ? new Date(p.start_date + "T00:00") : null;
+  // пока агент уточняет даты, показывать даты по умолчанию нельзя — их ещё никто не выбрал
+  const start = p.start_date && trip.days.length ? new Date(p.start_date + "T00:00") : null;
   const end = start ? new Date(start.getTime() + (p.nights ?? 0) * 864e5) : null;
   const fmt = (d: Date) => d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
   return (
@@ -171,6 +175,32 @@ function TripSummary({ trip, city, busy }: { trip: Trip | null; city: string; bu
       <span>{start && end && <><Icon name="calendar" size={14} /> {fmt(start)} – {fmt(end)}</>}</span>
       <span><Icon name="guests" size={14} /> {p.adults + p.children}{p.pets ? " + питомец" : ""}</span>
     </div>
+  );
+}
+
+/** Агенту не хватает данных: вопрос и поле ответа прямо в основной панели, а не только в чате. */
+function Clarify({ question, busy, onSend }: { question: string; busy: boolean; onSend: (t: string) => void }) {
+  const [answer, setAnswer] = useState("");
+  const submit = () => { if (answer.trim() && !busy) { onSend(answer.trim()); setAnswer(""); } };
+  if (busy) return <Loading busy />;
+  return (
+    <section className="clarify card-solid">
+      <span className="gicon gicon-md as-icon"><Icon name="chat" size={19} /></span>
+      <h2>Нужно уточнить пару деталей</h2>
+      <Markdown text={question} />
+      <form className="clarify-form" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+        <label className="field">
+          <span>Ваш ответ</span>
+          <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} rows={2} autoFocus
+            placeholder="Например: с 12 по 15 декабря, из Казани, двое взрослых, бюджет 60 000"
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }} />
+        </label>
+        <div className="clarify-actions">
+          <button className="btn primary" disabled={!answer.trim()}><Icon name="send" size={16} /> Ответить</button>
+          <button type="button" className="btn" onClick={() => onSend("На ваше усмотрение")}>На ваше усмотрение</button>
+        </div>
+      </form>
+    </section>
   );
 }
 
@@ -196,24 +226,30 @@ function Home({ health, onStart, lastTrip, onOpenLast, mode, setMode, paused, to
 }) {
   const [prompt, setPrompt] = useState("");
   const [city, setCity] = useState("");
-  const [date, setDate] = useState("");
-  const [guests, setGuests] = useState(2);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [adults, setAdults] = useState(2);
+  const [kids, setKids] = useState(0);
   const [touched, setTouched] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
   const cities = health?.cities ?? [];
   const cityName = (id: string) => cities.find((c) => c.id === id)?.name ?? "";
+  const day = (iso: string) => new Date(iso + "T00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+  const nights = from && to ? Math.round((+new Date(to) - +new Date(from)) / 864e5) : 0;
 
+  // поля превращаются в текст, который понимает агент: «с 12 декабря, 3 ночи», «Взрослых: 2, детей: 1»
   const compose = () => {
     const parts = [prompt.trim()];
     if (city && !prompt.toLowerCase().includes(cityName(city).toLowerCase().slice(0, 5))) parts.push(`Направление: ${cityName(city)}.`);
-    if (date) parts.push(`Заезд ${new Date(date + "T00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}.`);
-    if (touched && guests !== 2) parts.push(guests === 1 ? "Еду один." : `Нас ${guests} человека.`);
+    if (from) parts.push(nights > 0 ? `Даты: с ${day(from)} по ${day(to)}, ${nights} ноч.` : `Даты: с ${day(from)}.`);
+    if (touched) parts.push(`Едут ${adults} взрослых` + (kids ? ` и ${kids} детей.` : ", без детей."));
     return parts.filter(Boolean).join(" ");
   };
   const canGo = Boolean(prompt.trim() || city);
   const go = () => { if (canGo) onStart(compose() || `Поездка в ${cityName(city)}`); };
-  const clear = () => { setPrompt(""); setCity(""); setDate(""); setGuests(2); setTouched(false); area.current?.focus(); };
+  const clear = () => { setPrompt(""); setCity(""); setFrom(""); setTo(""); setAdults(2); setKids(0); setTouched(false); area.current?.focus(); };
   const today = new Date().toISOString().slice(0, 10);
+  const pickFrom = (v: string) => { setFrom(v); if (to && v && to <= v) setTo(""); };
 
   return (
     <div className={`home ${hidden ? "behind" : ""}`}>
@@ -227,7 +263,7 @@ function Home({ health, onStart, lastTrip, onOpenLast, mode, setMode, paused, to
       </header>
 
       <section className="home-hero">
-        <span className="eyebrow glass-subtle"><Icon name="spark" size={14} /> ИИ-агент для путешествий</span>
+        <span className="eyebrow glass-subtle"><Icon name="compass" size={14} /> ИИ-агент для путешествий</span>
         <h1>Одно сообщение.<br />Вся поездка.</h1>
         <p>Опишите, куда и как хотите поехать, — Waylo подберёт направление, дорогу и отель, посчитает бюджет и составит прогулки по дням.</p>
       </section>
@@ -235,11 +271,11 @@ function Home({ health, onStart, lastTrip, onOpenLast, mode, setMode, paused, to
       <form className="search glass-floating" onSubmit={(e) => { e.preventDefault(); go(); }} aria-label="Запрос к агенту">
         <label className="search-label" htmlFor="prompt">Опишите поездку</label>
         <div className="search-prompt">
-          <Icon name="spark" size={20} />
+          <Icon name="compass" size={20} />
           <textarea id="prompt" ref={area} value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={2}
             placeholder="Например: 4 дня в Казани в декабре вдвоём, бюджет 50 000, любим архитектуру и кухню"
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); go(); } }} />
-          {(prompt || city || date) && <GlassIcon name="close" label="Очистить запрос" size="sm" onClick={clear} />}
+          {(prompt || city || from) && <GlassIcon name="close" label="Очистить запрос" size="sm" onClick={clear} />}
         </div>
         <div className="search-fields">
           <label className="sfield">
@@ -251,19 +287,17 @@ function Home({ health, onStart, lastTrip, onOpenLast, mode, setMode, paused, to
               </select>
             </span>
           </label>
-          <label className="sfield">
+          <div className="sfield sfield-dates">
             <Icon name="calendar" size={18} />
-            <span><small>Заезд</small><input type="date" min={today} value={date} onChange={(e) => setDate(e.target.value)} /></span>
-          </label>
-          <div className="sfield">
+            <label><small>Туда</small><input type="date" min={today} value={from} onChange={(e) => pickFrom(e.target.value)} aria-label="Дата начала поездки" /></label>
+            <span className="dates-sep" aria-hidden="true">—</span>
+            <label><small>Обратно{nights > 0 ? ` · ${nights} ноч.` : ""}</small>
+              <input type="date" min={from || today} value={to} disabled={!from} onChange={(e) => setTo(e.target.value)} aria-label="Дата окончания поездки" /></label>
+          </div>
+          <div className="sfield sfield-guests">
             <Icon name="guests" size={18} />
-            <span><small>Гости</small>
-              <span className="stepper">
-                <button type="button" aria-label="Меньше гостей" disabled={guests <= 1} onClick={() => { setTouched(true); setGuests((g) => Math.max(1, g - 1)); }}>−</button>
-                <b aria-live="polite">{guests}</b>
-                <button type="button" aria-label="Больше гостей" disabled={guests >= 8} onClick={() => { setTouched(true); setGuests((g) => Math.min(8, g + 1)); }}>+</button>
-              </span>
-            </span>
+            <Counter label="Взрослые" value={adults} min={1} max={8} onChange={(v) => { setTouched(true); setAdults(v); }} />
+            <Counter label="Дети" value={kids} min={0} max={6} onChange={(v) => { setTouched(true); setKids(v); }} />
           </div>
           <button className="btn primary search-go" disabled={!canGo}><Icon name="search" size={18} /> Спланировать</button>
         </div>
@@ -314,6 +348,20 @@ function Home({ health, onStart, lastTrip, onOpenLast, mode, setMode, paused, to
         {error && <div className="toast error" role="alert"><Icon name="alert" size={17} /> <span>{error}</span></div>}
       </footer>
     </div>
+  );
+}
+
+function Counter({ label, value, min, max, onChange }: {
+  label: string; value: number; min: number; max: number; onChange: (v: number) => void;
+}) {
+  return (
+    <span className="counter"><small>{label}</small>
+      <span className="stepper">
+        <button type="button" aria-label={`${label}: меньше`} disabled={value <= min} onClick={() => onChange(value - 1)}>−</button>
+        <b aria-live="polite">{value}</b>
+        <button type="button" aria-label={`${label}: больше`} disabled={value >= max} onClick={() => onChange(value + 1)}>+</button>
+      </span>
+    </span>
   );
 }
 

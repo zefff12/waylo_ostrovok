@@ -105,9 +105,47 @@ def missing(p: TripParams) -> list[str]:
     return out
 
 
-def apply_params(trip: Trip, upd: dict) -> list[str]:
-    """Обновить параметры; вернуть список сделанных допущений."""
+def clarify(trip: Trip) -> list[str]:
+    """Вопросы о том, чего пользователь не назвал. Задаём один раз: после ответа берём допущения."""
     p = trip.params
+    if p.clarified or not p.destination:
+        return []
+    qs = []
+    if "start_date" not in p.known:
+        qs.append("С какого числа планируете поездку?" if "nights" in p.known else "С какого по какое число планируете поездку?")
+    elif "nights" not in p.known:
+        qs.append("На сколько дней едете?")
+    if "origin" not in p.known:
+        qs.append("Из какого города поедете?")
+    if "adults" not in p.known and "children" not in p.known:
+        qs.append("Сколько едет взрослых и будут ли дети?")
+    if qs and p.budget_rub is None:  # бюджет сам по себе не повод переспрашивать, но раз уж спрашиваем
+        qs.append("Есть ли бюджет на поездку?")
+    return qs
+
+
+def clarify_text(trip: Trip) -> str:
+    qs = clarify(trip)
+    trip.params.clarified = True
+    trip.status = "need_info"
+    name = CITIES[trip.params.destination].name if trip.params.destination else "поездку"  # type: ignore[index]
+    lines = [f"Соберу поездку: **{name}**. Чтобы не гадать, уточните:"]
+    lines += [f"{i}. {q}" for i, q in enumerate(qs, 1)]
+    lines.append("Можно ответить одним сообщением, например: «с 12 по 15 декабря, из Казани, двое взрослых». "
+                 "Если неважно — напишите «на ваше усмотрение», и я возьму ближайшие выходные.")
+    return "\n".join(lines)
+
+
+def apply_params(trip: Trip, upd: dict, known: list[str] | None = None) -> list[str]:
+    """Обновить параметры; вернуть список сделанных допущений.
+
+    known — поля, которые пользователь назвал сам (по умолчанию все ключи upd).
+    """
+    p = trip.params
+    named = [k for k in (upd if known is None else known) if upd.get(k) not in (None, [], "")]
+    p.known = list(dict.fromkeys([*p.known, *named]))
+    stale = {"start_date": "Точные даты", "nights": "Длительность", "adults": "Путешественники", "children": "Путешественники"}
+    p.assumptions = [a for a in p.assumptions if not any(a.startswith(stale[k]) for k in named if k in stale)]
     for k, v in upd.items():
         if v is None or not hasattr(p, k):
             continue
@@ -216,6 +254,7 @@ def plan_trip(trip: Trip) -> dict:
     log_tool(trip, "build_walks", f"{len(trip.days)} дн., {sum(len(d.stops) for d in trip.days)} точек")
     _weather(trip)
     recompute(trip)
+    fit_budget(trip)
     log_tool(trip, "calc_budget", f"Итого {rub(trip.budget.total)}" + (f", превышение {rub(trip.budget.over_by)}" if trip.budget.over_by else ""))
     log_tool(trip, "check_connections", _conn_summary(trip))
     trip.status = "ready"
@@ -475,6 +514,8 @@ def set_constraints(trip: Trip, pets: bool | None = None, children: int | None =
             d.less_walking = p.walking == "low"
             walks.reselect_day(trip, d, keep=list(d.place_ids)[:3] if d.less_walking else list(d.place_ids))
     recompute(trip)
+    if "бюджет" in changed:
+        fit_budget(trip)
     e = _record(trip, before, "Изменены условия: " + ", ".join(changed))
     if "питомец" in changed and p.pets and not any(x.startswith(("Отель", "Транспорт")) for x in e.details):
         h, t = trip.hotel(), trip.transport()
@@ -484,6 +525,52 @@ def set_constraints(trip: Trip, pets: bool | None = None, children: int | None =
         e.details.append(f"Лимит {rub(p.budget_rub)}: " + (f"превышение {rub(trip.budget.over_by)}" if trip.budget.over_by else "укладываемся"))
     log_tool(trip, "set_constraints", e.summary)
     return {"changes": e.details, **summary(trip)}
+
+
+def fit_budget(trip: Trip) -> bool:
+    """Уложиться в бюджет пользователя: лучшая по рейтингу пара транспорт + отель, которая в него влезает.
+
+    Если даже самый дешёвый вариант дороже, бесплатные места заменяют платные; не помогло — честно
+    помечаем критичную проблему, и оформление блокируется, пока пользователь не решит, что менять.
+    """
+    p = trip.params
+    if not p.budget_rub or trip.budget.total <= p.budget_rub:
+        return True
+    cur_t, cur_h = trip.selected_transport_id, trip.selected_hotel_id
+    trans = [o for o in trip.transport_options if o.pets_allowed or not p.pets]
+    combos = []
+    for ti, t in enumerate(trans):
+        for hi, h in enumerate(trip.hotel_options):
+            trip.selected_transport_id, trip.selected_hotel_id = t.id, h.id
+            total = budget_mod.calc(trip).total
+            fits = total <= p.budget_rub
+            # влезающие — лучший по рейтингу (при равенстве дешевле); если не влезает ничего — самый дешёвый
+            combos.append((fits, -(ti + hi) if fits else -total, -total, t.id, h.id))
+    _, _, _, t_id, h_id = max(combos)
+    trip.selected_transport_id, trip.selected_hotel_id = t_id, h_id
+    if (t_id, h_id) != (cur_t, cur_h):
+        _rewindow(trip)
+        for d in trip.days:
+            walks.optimize_order(trip, d)
+    recompute(trip)
+    if trip.budget.total > p.budget_rub:
+        _swap_paid_places(trip)
+        recompute(trip)
+    ok = trip.budget.total <= p.budget_rub
+    log_tool(trip, "fit_budget", f"Лимит {rub(p.budget_rub)}: " + (f"уложились, {rub(trip.budget.total)}" if ok
+             else f"минимум {rub(trip.budget.total)}, не хватает {rub(trip.budget.over_by)}"), ok=ok)
+    return ok
+
+
+def _swap_paid_places(trip: Trip) -> None:
+    for d in trip.days:  # самое дорогое платное место дня → бесплатная альтернатива рядом
+        paid = [pid for pid in d.place_ids if (pl := trip.place(pid)) and pl.ticket_rub >= 600]
+        free = [x for x in walks.unused_places(trip) if x.ticket_rub == 0 and "cafe" not in x.cats]
+        if paid and free:
+            worst = max(paid, key=lambda pid: trip.place(pid).ticket_rub)  # type: ignore[union-attr]
+            alt = min(free, key=lambda x: _dist(trip.place(worst), x))  # type: ignore[arg-type]
+            d.place_ids = [alt.id if pid == worst else pid for pid in d.place_ids]
+        walks.optimize_order(trip, d)
 
 
 def make_cheaper(trip: Trip) -> dict:
@@ -501,14 +588,7 @@ def make_cheaper(trip: Trip) -> dict:
     if not cur or cheapest.total < cur.total:
         trip.selected_hotel_id = cheapest.id
     _rewindow(trip)
-    for d in trip.days:  # самое дорогое платное место дня → бесплатная альтернатива рядом
-        paid = [pid for pid in d.place_ids if (pl := trip.place(pid)) and pl.ticket_rub >= 600]
-        free = [x for x in walks.unused_places(trip) if x.ticket_rub == 0 and "cafe" not in x.cats]
-        if paid and free:
-            worst = max(paid, key=lambda pid: trip.place(pid).ticket_rub)  # type: ignore[union-attr]
-            alt = min(free, key=lambda x: _dist(trip.place(worst), x))  # type: ignore[arg-type]
-            d.place_ids = [alt.id if pid == worst else pid for pid in d.place_ids]
-        walks.optimize_order(trip, d)
+    _swap_paid_places(trip)
     recompute(trip)
     e = _record(trip, before, "Сделали дешевле")
     log_tool(trip, "make_cheaper", f"{rub(before['total'])} → {rub(trip.budget.total)}")
@@ -520,19 +600,46 @@ def make_cheaper(trip: Trip) -> dict:
     return out
 
 
+EXTRA_ITEM = {"early_checkin": "early_checkin", "transfer": "transfer_booking"}
+
+
+def extra_offers(trip: Trip) -> list:
+    """Что можно докупить после покупки: цена считается заранее и показывается до оплаты."""
+    from .schemas import ExtraOffer
+
+    t, h = trip.transport(), trip.hotel()
+    paid = {i.id for i in trip.budget.items if i.category == "extras"}
+    out = []
+    if h and h.early_checkin_price:
+        arrive = t.outbound.arrive[11:16] if t else ""
+        out.append(ExtraOffer(kind="early_checkin", title=f"Ранний заезд в {h.name}", amount=h.early_checkin_price,
+                              note=f"Номер готов к прибытию{' в ' + arrive if arrive else ''}, а не с {h.checkin}. Тариф — оценка (50% ночи)",
+                              paid="early_checkin" in paid))
+    tr, dist = budget_mod.transfer_cost(trip)
+    if tr and t:
+        hub = "вокзала" if t.mode == "train" else "аэропорта"
+        out.append(ExtraOffer(kind="transfer", title=f"Трансфер от {hub} до отеля", amount=_transfer_price(tr),
+                              note=f"Встреча с табличкой, {dist:.0f} км, фиксированная цена за машину. Такси в смете заменится на эту поездку",
+                              paid="transfer_booking" in paid))
+    return out
+
+
+def _transfer_price(taxi_one_way: int) -> int:
+    return int(round(taxi_one_way * 1.3 / 100) * 100)  # заказной трансфер с встречей дороже такси примерно на треть
+
+
 def add_extra(trip: Trip, kind: str) -> dict:
-    """После покупки (демо): ранний заезд или трансфер."""
+    """После покупки (демо): ранний заезд или трансфер — отдельная оплата на свою сумму."""
     from .schemas import BudgetItem
 
-    h = trip.hotel()
-    if kind == "early_checkin" and h:
-        item = BudgetItem(id="early_checkin", category="extras", title=f"Ранний заезд в {h.name}",
-                          amount=h.early_checkin_price, kind="demo", source="Демо-тариф отеля")
-    else:
-        tr, dist = budget_mod.transfer_cost(trip)
-        item = BudgetItem(id="transfer_booking", category="extras", title=f"Заказ трансфера к отелю ({dist:.0f} км)",
-                          amount=0, kind="demo", source="Демо: стоимость уже учтена в разделе «Трансфер»")
+    offer = next((o for o in extra_offers(trip) if o.kind == kind), None)
+    if not offer:
+        return {"error": "Эта услуга недоступна для выбранного отеля и транспорта"}
+    if offer.paid:
+        return {"error": "Уже оформлено"}
+    item = BudgetItem(id=EXTRA_ITEM[kind], category="extras", title=offer.title, amount=offer.amount, kind="estimate",
+                      source="Оценка Waylo, оплата демо")
     trip.budget.items = [i for i in trip.budget.items if i.id != item.id] + [item]
     recompute(trip)
-    log_tool(trip, "post_purchase", item.title)
+    log_tool(trip, "post_purchase", f"{item.title} — {rub(item.amount)}")
     return {"added": item.title, "amount": item.amount}

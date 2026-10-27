@@ -29,7 +29,7 @@ export function Chat({ chat, trip, busy, onSend, onClose }: {
   return (
     <aside className="chat glass-modal" aria-label="Чат с агентом">
       <div className="chat-head">
-        <span className="chat-title"><span className="gicon gicon-sm as-icon"><Icon name="spark" size={15} /></span> ИИ-помощник</span>
+        <span className="chat-title"><span className="gicon gicon-sm as-icon"><Icon name="compass" size={15} /></span> ИИ-помощник</span>
         <span className="chat-head-actions">
           {trip && trip.tool_log.length > 0 && (
             <button className="link" onClick={() => setShowLog((v) => !v)}>

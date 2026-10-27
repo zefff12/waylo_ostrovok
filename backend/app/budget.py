@@ -34,9 +34,12 @@ def calc(trip: Trip) -> Budget:
                                 kind=h.kind, source=h.source,
                                 note=f"{h.price_per_night:,} ₽ × {h.nights} ноч.".replace(",", " ")))
     tr, dist = transfer_cost(trip)
+    extras = [e for e in trip.budget.items if e.category == "extras"]
+    booked = any(e.id == "transfer_booking" for e in extras)  # трансфер до отеля оплачен — такси остаётся только обратно
     if tr:
-        items.append(BudgetItem(id="transfer", category="transfer", title=f"Трансфер туда и обратно (такси, {dist:.0f} км)",
-                                amount=tr * 2, kind="estimate", source="Оценка Waylo: посадка + ₽/км по городу"))
+        items.append(BudgetItem(id="transfer", category="transfer",
+                                title=f"Трансфер {'обратно' if booked else 'туда и обратно'} (такси, {dist:.0f} км)",
+                                amount=tr if booked else tr * 2, kind="estimate", source="Оценка Waylo: посадка + ₽/км по городу"))
     meal = MEAL_DISCOUNT[h.meals] if h else 0
     food = int(round(city.food_per_person_day * (p.adults + p.children * 0.6) * days * (1 - meal) / 100) * 100)
     items.append(BudgetItem(id="food", category="food", title=f"Питание, {days} дн.", amount=food, kind="estimate",
@@ -50,13 +53,13 @@ def calc(trip: Trip) -> Budget:
     if local:
         items.append(BudgetItem(id="local", category="local_transport", title="Транспорт по городу между точками",
                                 amount=local, kind="estimate", source="Цена поездки × число поездок"))
-    for extra in [e for e in trip.budget.items if e.category == "extras"]:
-        items.append(extra)
+    items.extend(extras)
     total = sum(i.amount for i in items)
+    planned = total - sum(e.amount for e in extras)  # доп. услуги после покупки покупаются сознательно сверх плана
     b = Budget(items=items, total=total, limit=p.budget_rub,
                assumptions=["Питание и транспорт по городу — оценки", "Отели реальные (OpenStreetMap), цена проживания — оценка"])
-    if p.budget_rub and total > p.budget_rub:
-        b.over_by = total - p.budget_rub
+    if p.budget_rub and planned > p.budget_rub:
+        b.over_by = planned - p.budget_rub
         b.savings = savings(trip, total)
     return b
 

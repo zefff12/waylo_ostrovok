@@ -81,6 +81,12 @@ CASES = [
      lambda t: (t["budget"]["limit"] == 50000, "лимит обновлён")),
     ("Отмена важна", ["Москва на 3 дня, важна бесплатная отмена"],
      lambda t: (_hotel(t)["cancellation"] == "free", "бесплатная отмена")),
+    ("Уточняющие вопросы", ["Я хочу съездить в Москву. Нас будет 3 взрослых. Бюджет 60 тысяч рублей"],
+     lambda t: (t["status"] == "need_info" and not t["days"], "агент спросил даты и город отправления")),
+    ("Ответ на уточнение", ["Я хочу съездить в Москву. Нас будет 3 взрослых. Бюджет 60 тысяч рублей", "с 12 по 15 декабря, из Казани"],
+     lambda t: (t["params"]["origin"] == "kazan" and t["params"]["nights"] == 3 and len(t["days"]) > 0, "план с датами и городом из ответа")),
+    ("Бюджет соблюдён", ["Петербург с 5 по 8 декабря из Москвы вдвоём, бюджет 45 000"],
+     lambda t: (t["budget"]["total"] <= 45000, "итог не выше лимита")),
     ("Покупка", ["Казань на 3 дня"], None),  # проверяется checkout ниже
     ("После покупки", ["Петербург на 3 дня"], None),
 ]
@@ -118,6 +124,15 @@ def main() -> None:
                 agents.add(j["chat"][-1].get("agent", "?"))
                 if trip["status"] == "need_info":
                     clar += 1
+                    # агент уточняет даты и город отправления; в однострочных кейсах отвечаем как пользователь,
+                    # которому всё равно, — и проверяем уже собранный план
+                    if trip["params"]["destination"] and not trip["days"] and name not in ("Уточняющие вопросы", "Ответ на уточнение"):
+                        r = c.post("/api/chat", json={"trip_id": trip_id, "user_id": f"eval_{len(rows)}",
+                                                      "message": "На ваше усмотрение", "mode": mode})
+                        r.raise_for_status()
+                        j = r.json()
+                        trip = j["trip"]
+                        agents.add(j["chat"][-1].get("agent", "?"))
                 if first_rec_ms is None and (trip["days"] or trip["destination_options"]):
                     first_rec_ms = int((time.time() - t0) * 1000)
             completed = None

@@ -24,6 +24,8 @@ def handle(trip: Trip, text: str, profile: dict | None = None) -> str:
         return QUESTION
     if trip.status == "choose_destination" and (chosen := _pick_destination(trip, text)):
         planner.apply_params(trip, {"destination": chosen})
+        if planner.clarify(trip):
+            return planner.clarify_text(trip)
         planner.plan_trip(trip)
         return describe_plan(trip, intro=f"Отлично, {CITIES[chosen].name}. Собрал поездку:")
 
@@ -70,6 +72,8 @@ def handle(trip: Trip, text: str, profile: dict | None = None) -> str:
                 lines.append(f"   ↳ минус: {o['tradeoffs'][0]}")
         lines.append("Выберите карточку или напишите название города.")
         return "\n".join(lines) + mem
+    if planner.clarify(trip):
+        return planner.clarify_text(trip) + mem
     planner.plan_trip(trip)
     return describe_plan(trip, intro="Собрал поездку целиком:") + mem
 

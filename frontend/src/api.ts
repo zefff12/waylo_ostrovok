@@ -31,8 +31,8 @@ export const api = {
   hotel: (id: string, opt: string) => post<TripResponse>(`/api/trips/${id}/hotel`, { option_id: opt }),
   day: (id: string, day: number, action: string, extra: { category?: string; place_id?: string } = {}) =>
     post<TripResponse>(`/api/trips/${id}/days/${day}`, { action, ...extra }),
-  checkout: (id: string, guest_name: string) => post<TripResponse>(`/api/trips/${id}/checkout`, { guest_name }),
-  extras: (id: string, kind: string) => post<TripResponse>(`/api/trips/${id}/extras`, { kind }),
+  checkout: (id: string, guest_name: string, card?: string) => post<TripResponse>(`/api/trips/${id}/checkout`, { guest_name, card }),
+  extras: (id: string, kind: string, card?: string) => post<TripResponse>(`/api/trips/${id}/extras`, { kind, card }),
 };
 
 /** claude-haiku-5-5 → «Claude Haiku 5.5» */

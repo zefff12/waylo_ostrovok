@@ -49,7 +49,11 @@ export interface Budget { items: BudgetItem[]; total: number; limit: number | nu
 export interface ConnectionCheck { level: "ok" | "warning" | "critical"; code: string; text: string; fix: string | null }
 export interface ChangeEntry { at: string; summary: string; details: string[] }
 export interface ToolEvent { tool: string; summary: string; ok: boolean }
-export interface Order { order_id: string; created_at: string; total: number; lines: string[]; status: string; post_purchase: string[] }
+export interface ExtraOffer { kind: "early_checkin" | "transfer"; title: string; note: string; amount: number; paid: boolean }
+export interface Order {
+  order_id: string; created_at: string; total: number; lines: string[]; status: string; payment: string | null;
+  post_purchase: string[]; offers: ExtraOffer[];
+}
 
 export interface Trip {
   id: string; status: "need_info" | "choose_destination" | "planning" | "ready" | "purchased";

@@ -234,7 +234,7 @@ button.gicon:active:not(:disabled) { transform: scale(.93); }
 .search-prompt > .ic { margin-top: 4px; }
 .search textarea { flex: 1; border: 0; background: transparent; font: inherit; font-size: var(--fs-lg); color: var(--ink); resize: none; outline: none; line-height: 1.45; min-height: 52px; }
 .search textarea::placeholder { color: #737D95; }
-.search-fields { display: grid; grid-template-columns: 1.3fr 1fr .8fr auto; gap: 8px; }
+.search-fields { display: grid; grid-template-columns: 1fr 1.9fr 1.1fr auto; gap: 8px; }
 .sfield { display: flex; align-items: center; gap: 10px; background: rgba(255, 255, 255, .64); border: 1px solid rgba(255, 255, 255, .85);
   border-radius: var(--r-sm); padding: 8px 12px; color: var(--ink-2); min-height: 56px; min-width: 0; transition: background var(--d2); }
 .sfield:focus-within { background: rgba(255, 255, 255, .9); }
@@ -451,7 +451,7 @@ button.gicon:active:not(:disabled) { transform: scale(.93); }
 /* bottom sheet фильтров */
 .sheet-wrap { position: fixed; inset: 0; z-index: 50; background: rgba(11, 23, 56, .2); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
   display: flex; align-items: flex-end; justify-content: center; animation: fadein var(--d2) var(--ease) both; }
-.sheet { width: min(520px, 100%); border-radius: var(--r-lg) var(--r-lg) 0 0; padding: 10px 20px max(20px, env(safe-area-inset-bottom)); animation: sheetup .38s var(--ease) both; }
+.sheet { width: min(520px, 100%); max-height: 94dvh; overflow-y: auto; border-radius: var(--r-lg) var(--r-lg) 0 0; padding: 10px 20px max(20px, env(safe-area-inset-bottom)); animation: sheetup .38s var(--ease) both; }
 .sheet-grip { width: 42px; height: 5px; border-radius: 3px; background: rgba(11, 23, 56, .18); margin: 0 auto 10px; }
 .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .sheet-head h3 { margin: 0; }
@@ -518,6 +518,50 @@ button.gicon:active:not(:disabled) { transform: scale(.93); }
 @keyframes blink { 50% { opacity: .2; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes shimmer { to { background-position: -200% 0; } }
+/* поиск: даты «туда — обратно» и состав группы */
+.sfield-dates, .sfield-guests { gap: 8px; }
+.sfield-dates label, .counter { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.sfield-dates input { min-width: 112px; }
+.sfield-dates input:disabled { opacity: .45; }
+.dates-sep { color: var(--muted); font-weight: 700; padding-top: 14px; }
+.counter .stepper { gap: 8px; }
+.counter .stepper button { width: 26px; height: 26px; }
+
+/* агент уточняет детали */
+.clarify { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; max-width: 720px; }
+.clarify h2 { margin: 4px 0 0; font-size: var(--fs-xl); }
+.clarify .md { font-size: var(--fs-md); }
+.clarify-form { width: 100%; display: grid; gap: 10px; }
+.clarify-form textarea { font: inherit; border: 1px solid rgba(11, 23, 56, .14); border-radius: var(--r-sm); padding: 12px 14px; background: #fff; resize: vertical; }
+.clarify-form textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(6, 69, 245, .12); }
+.clarify-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* демо-оплата картой */
+.pay { display: grid; gap: 12px; }
+.pay-card { aspect-ratio: 1.7; max-width: 340px; width: 100%; border-radius: 18px; padding: 18px 20px; color: #fff; display: flex; flex-direction: column; justify-content: space-between;
+  background: linear-gradient(135deg, #24305E 0%, #0B1738 60%, #0645F5 140%); box-shadow: 0 14px 34px rgba(11, 23, 56, .25); transition: background var(--d3) var(--ease); }
+.pay-card.known { background: linear-gradient(135deg, #0645F5 0%, #24305E 70%, #0B1738 100%); }
+.pay-card-top { display: flex; align-items: center; justify-content: space-between; }
+.pay-card-num { font-size: clamp(16px, 4.6vw, 21px); letter-spacing: .12em; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pay-card-bottom { display: flex; justify-content: space-between; font-size: var(--fs-xs); letter-spacing: .08em; opacity: .85; }
+.pay-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field.invalid input { border-color: rgba(210, 52, 58, .6); background: #FFF8F8; }
+.field .form-error { margin: 0; }
+.pay-note { display: flex; gap: 6px; align-items: flex-start; font-size: var(--fs-xs); color: var(--muted); margin: 0; }
+.pay-note .ic { flex: none; margin-top: 1px; }
+.pay-note .link { font-size: inherit; padding: 0; }
+.pay-processing { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 0; text-align: center; }
+.sheet-note { margin: 0 0 12px; font-size: var(--fs-sm); }
+
+/* доп. услуги после покупки */
+.offers { display: grid; gap: 10px; }
+.offer { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; }
+.offer-body { display: grid; gap: 3px; font-size: var(--fs-sm); }
+.offer-body b { font-size: var(--fs-md); }
+.offer-side { display: grid; justify-items: end; gap: 6px; }
+.offer-price { font-weight: 800; font-size: var(--fs-lg); }
+.offer.paid { opacity: .85; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; transition-duration: .01ms !important; }
 }
@@ -526,6 +570,8 @@ button.gicon:active:not(:disabled) { transform: scale(.93); }
 @media (max-width: 1180px) {
   .walks-grid { grid-template-columns: 1fr; }
   .map { position: static; height: 380px; }
+  .search-fields { grid-template-columns: 1fr 1fr; }
+  .search-go { grid-column: 1 / -1; }
 }
 @media (max-width: 1000px) {
   .topbar { border-radius: var(--r-md); }
@@ -552,8 +598,13 @@ button.gicon:active:not(:disabled) { transform: scale(.93); }
   .home-top-actions .pill span, .home-top-actions .pill { font-size: var(--fs-xs); }
   .home-hero p { font-size: var(--fs-md); }
   .search textarea { font-size: var(--fs-md); }
-  .search-fields { grid-template-columns: 1fr 1fr; }
-  .search-fields .sfield:first-child { grid-column: 1 / -1; }
+  .search-fields { grid-template-columns: 1fr; }
+  .sfield-dates input { min-width: 0; font-size: var(--fs-sm); }
+  .sfield-dates small { white-space: nowrap; }
+  .dates-sep { display: none; }
+  .sfield-dates { gap: 6px; }
+  .offer { grid-template-columns: auto 1fr; }
+  .offer-side { grid-column: 1 / -1; grid-auto-flow: column; justify-content: space-between; align-items: center; }
   .search-go { grid-column: 1 / -1; }
   .search-hint { display: none; }
   /* на телефоне прокручивается вся страница — вуаль плотнее, но всё ещё прозрачная */

@@ -26,6 +26,8 @@ class TripParams(BaseModel):
     priority: Literal["balanced", "price", "location", "cancellation"] = "balanced"
     transport_pref: Literal["any", "train", "plane"] = "any"
     assumptions: list[str] = Field(default_factory=list)
+    known: list[str] = Field(default_factory=list)  # что пользователь назвал сам, а не взято по умолчанию
+    clarified: bool = False  # уточняющие вопросы уже задавали — второй раз не спрашиваем, берём допущения
 
     @property
     def travelers(self) -> int:
@@ -196,13 +198,24 @@ class ToolEvent(BaseModel):
     ok: bool = True
 
 
+class ExtraOffer(BaseModel):
+    kind: Literal["early_checkin", "transfer"]
+    title: str
+    note: str
+    amount: int
+    paid: bool = False
+
+
 class Order(BaseModel):
     order_id: str
     created_at: str
     total: int
     lines: list[str]
     status: str = "DEMO — оплата не производилась, бронирований не создано"
+    payment: str | None = None  # «Visa •••• 4242» — номер карты на сервер не передаётся
     post_purchase: list[str] = Field(default_factory=list)
+    offers: list[ExtraOffer] = Field(default_factory=list)
+
 
 
 class Trip(BaseModel):

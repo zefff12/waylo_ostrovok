@@ -21,7 +21,7 @@ from fastapi import FastAPI, HTTPException  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
-from pydantic import BaseModel  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
 
 from . import agent_gigachat, agent_llm, agent_offline, connections, integrations, planner, store  # noqa: E402
 from .data import CITIES  # noqa: E402
@@ -53,12 +53,18 @@ class SelectIn(BaseModel):
     option_id: str
 
 
+# Номер карты на сервер не приходит: интерфейс присылает только платёжную систему и последние 4 цифры.
+CARD = r"^(Visa|Mastercard|МИР|Карта) •••• \d{4}$"
+
+
 class CheckoutIn(BaseModel):
     guest_name: str = "Гость Waylo"
+    card: str | None = Field(default=None, pattern=CARD)
 
 
 class ExtraIn(BaseModel):
     kind: str  # early_checkin | transfer
+    card: str | None = Field(default=None, pattern=CARD)
 
 
 def _get(trip_id: str) -> tuple[Trip, list, list]:
@@ -188,12 +194,16 @@ def choose_destination(trip_id: str, body: SelectIn) -> dict:
     if body.option_id not in CITIES:
         raise HTTPException(400, "Неизвестный город")
     planner.apply_params(trip, {"destination": body.option_id})
-    planner.plan_trip(trip)
-    text = agent_offline.describe_plan(trip, intro=f"Выбрали {CITIES[body.option_id].name}. Собрал поездку:")
+    if planner.clarify(trip):
+        text = planner.clarify_text(trip)
+    else:
+        planner.plan_trip(trip)
+        text = agent_offline.describe_plan(trip, intro=f"Выбрали {CITIES[body.option_id].name}. Собрал поездку:")
     chat_log.append({"role": "assistant", "text": text, "agent": "ui", "at": datetime.now().strftime("%H:%M")})
     histories = _histories(messages)  # чтобы LLM знала о выборе, сделанном кнопкой
-    _note_ui(histories, f"[Пользователь выбрал в интерфейсе направление {body.option_id}; поездка собрана через plan_trip.]",
-             "Принято, поездка собрана.")
+    _note_ui(histories, f"[Пользователь выбрал в интерфейсе направление {body.option_id}; "
+             + ("поездка собрана через plan_trip.]" if trip.days else f"агент задал уточняющие вопросы: {text}]"),
+             "Принято, поездка собрана." if trip.days else "Жду ответа пользователя.")
     store.save_trip(trip, histories, chat_log)
     return {"trip": trip, "chat": chat_log}
 
@@ -245,14 +255,18 @@ def checkout(trip_id: str, body: CheckoutIn) -> dict:
     if connections.has_critical(trip):
         crit = next(c for c in trip.connections if c.level == "critical")
         raise HTTPException(409, f"Оформление заблокировано: {crit.text}. {crit.fix or ''}")
-    lines = [f"{i.title} — {planner.rub(i.amount)} [{i.kind}]" for i in trip.budget.items]
+    kind_ru = {"confirmed": "реальные данные", "estimate": "оценка", "demo": "демо"}
+    lines = [f"{i.title} — {planner.rub(i.amount)} ({kind_ru.get(i.kind, i.kind)})" for i in trip.budget.items]
     oid = "WAYLO-DEMO-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    trip.order = Order(order_id=oid, created_at=datetime.now().isoformat(timespec="minutes"), total=trip.budget.total, lines=lines)
+    trip.order = Order(order_id=oid, created_at=datetime.now().isoformat(timespec="minutes"), total=trip.budget.total,
+                       lines=lines, payment=body.card)
+    trip.order.offers = planner.extra_offers(trip)
     trip.status = "purchased"
     planner.log_tool(trip, "demo_checkout", f"{oid}: {planner.rub(trip.budget.total)}, гость «{body.guest_name}» — оплата не производилась")
+    paid = f" Оплата: {body.card} (демо, деньги не списаны)." if body.card else " Реальной оплаты и брони нет."
     chat_log.append({"role": "assistant", "agent": "ui", "at": datetime.now().strftime("%H:%M"),
-                     "text": f"Демо-заказ **{oid}** оформлен на {planner.rub(trip.budget.total)}. Реальной оплаты и брони нет.\n"
-                             "После покупки могу: запросить ранний заезд или заказать трансфер к отелю (демо)."})
+                     "text": f"Демо-заказ **{oid}** оформлен на {planner.rub(trip.budget.total)}.{paid}\n"
+                             "После покупки могу оформить ранний заезд или трансфер до отеля — каждую услугу оплачиваете отдельно."})
     store.save_trip(trip, messages, chat_log)
     return {"trip": trip, "chat": chat_log}
 
@@ -263,10 +277,14 @@ def extras(trip_id: str, body: ExtraIn) -> dict:
     if trip.status != "purchased" or not trip.order:
         raise HTTPException(400, "Доступно после оформления")
     r = planner.add_extra(trip, body.kind)
-    trip.order.post_purchase.append(f"{r['added']} — {planner.rub(r['amount'])} (демо-запрос отправлен не был)")
+    if "error" in r:
+        raise HTTPException(409, r["error"])
+    card = f", карта {body.card}" if body.card else ""
+    trip.order.post_purchase.append(f"{r['added']} — {planner.rub(r['amount'])}, оплачено{card} (демо, деньги не списаны)")
     trip.order.total = trip.budget.total
+    trip.order.offers = planner.extra_offers(trip)
     chat_log.append({"role": "assistant", "agent": "ui", "at": datetime.now().strftime("%H:%M"),
-                     "text": f"Добавил: {r['added']} ({planner.rub(r['amount'])}, демо). Итого теперь {planner.rub(trip.budget.total)}."})
+                     "text": f"Оплачено: **{r['added']}** — {planner.rub(r['amount'])}. Итого по заказу теперь {planner.rub(trip.budget.total)}."})
     store.save_trip(trip, messages, chat_log)
     return {"trip": trip, "chat": chat_log}
 

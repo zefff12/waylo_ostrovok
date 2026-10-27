@@ -77,6 +77,10 @@ def check(trip: Trip) -> list[ConnectionCheck]:
                 out.append(ConnectionCheck(level="warning", code=f"closed_{s.place.id}",
                                            text=f"День {d.day}: «{s.place.name}» в этот день обычно закрыт",
                                            fix="Попросите заменить точку — подберу альтернативу"))
+    if trip.budget.over_by > 0 and trip.budget.limit:
+        out.append(ConnectionCheck(level="critical", code="over_budget",
+                                   text=f"Поездка дороже бюджета {trip.budget.limit:,} ₽ на {trip.budget.over_by:,} ₽".replace(",", " "),
+                                   fix="Напишите «сделай дешевле», сократите число ночей, сдвиньте даты или увеличьте бюджет"))
     return out
 
 

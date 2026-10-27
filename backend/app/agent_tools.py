@@ -25,15 +25,16 @@ SYSTEM = f"""Ты — Waylo, ИИ-агент для планирования п�
 Порядок работы:
 1. Извлеки параметры (город, даты/месяц, длительность, кто едет, питомцы, бюджет, интересы, ограничения, скрытые требования: «с ребёнком» → короткая дорога и меньше ходьбы, «с собакой» → pets) и вызови update_trip_params.
 2. Город не назван, но есть пожелания («к морю», «тепло», «куда-нибудь») → suggest_destinations и предложи 2–3 варианта с причинами. Не задавай анкету.
-3. Город известен → plan_trip. Не хватает только дат или длительности — не спрашивай, бери разумное допущение (инструмент сам его отметит) и скажи о нём.
+3. Город известен → plan_trip. Если пользователь не назвал даты, город отправления или состав (взрослые и дети), plan_trip вернёт need_clarification — задай эти вопросы одним сообщением нумерованным списком и жди ответа. Спрашиваем один раз: после ответа недостающее берётся допущением.
 4. Пользователь меняет условия → используй точечные инструменты (modify_day, shift_dates, set_constraints, make_cheaper, select_hotel, select_transport), а не plan_trip заново.
-5. Задавай уточняющий вопрос только если без ответа нельзя двигаться (например, совсем непонятно, куда и когда). Максимум один вопрос.
+5. Других вопросов не задавай: всё остальное решай сам и объясняй выбор.
 
 Правила:
 - Цены, наличие, погоду и часы работы бери только из результатов инструментов. Ничего не выдумывай.
 - Поле kind: confirmed — данные внешнего API, estimate — расчёт или кэш, demo — синтетика. Отели всегда демо — так и говори.
 - Для каждой рекомендации коротко: почему подходит, чем пожертвовали, какой риск.
-- Если есть превышение бюджета или критичные проблемы состыковки — обязательно скажи и предложи решение.
+- Бюджет пользователя — жёсткий лимит. Инструменты сами подбирают варианты в его пределах; не выбирай отель или транспорт, из-за которых он превышается. Если уложиться нельзя даже в самом дешёвом варианте — прямо скажи, сколько не хватает, и предложи: сократить ночи, сдвинуть даты или увеличить бюджет.
+- Критичные проблемы состыковки — обязательно скажи о них и предложи решение.
 - Реальных покупок и бронирований нет: оформление — демо во вкладке «Оформление».
 - Интерфейс уже показывает карточки, карту и бюджет. В чате пиши кратко: 4–8 строк, по-русски, можно **жирный** и списки. Без таблиц. Никаких эмодзи и пиктограмм: вместо них — короткие подписи жирным («**Отель:** …»).
 """
@@ -167,6 +168,18 @@ def _merge_facts(args: dict, facts: dict) -> dict:
     return merged
 
 
+def _within_budget(trip: Trip, name: str, args: dict) -> dict:
+    """Выбор модели не должен выводить поездку за бюджет, если до этого она в него укладывалась."""
+    backup = trip.model_copy(deep=True)
+    r = planner.select_transport(trip, args["option_id"]) if name == "select_transport" else planner.select_hotel(trip, args["hotel_id"])
+    if "error" not in r and trip.budget.over_by and not backup.budget.over_by:
+        over = trip.budget.over_by
+        trip.__dict__.update(backup.__dict__)
+        return {"error": f"Этот вариант выводит поездку за бюджет на {planner.rub(over)} — выбор отменён. "
+                         "Предложи пользователю варианты в пределах бюджета или спроси, готов ли он его увеличить."}
+    return r
+
+
 def execute(trip: Trip, name: str, args: dict) -> dict:
     if name == "update_trip_params":
         facts = _turn_facts.get()
@@ -180,7 +193,8 @@ def execute(trip: Trip, name: str, args: dict) -> dict:
         if args.get("budget_rub") and "budget_rub" not in facts:
             dropped.append("budget_rub")
         args = _merge_facts({k: v for k, v in args.items() if k not in dropped}, facts)
-        assumptions = planner.apply_params(trip, args)
+        # «названо пользователем» — только то, что парсер нашёл в его словах; догадки модели не считаются
+        assumptions = planner.apply_params(trip, args, known=[k for k in facts if k in args])
         planner.log_tool(trip, name, ", ".join(f"{k}={v}" for k, v in args.items())[:160])
         out = {"params": trip.params.model_dump(exclude={"assumptions"}), "new_assumptions": assumptions,
                "missing": planner.missing(trip.params)}
@@ -193,6 +207,10 @@ def execute(trip: Trip, name: str, args: dict) -> dict:
             planner.apply_params(trip, _merge_facts({}, facts))  # модель могла сразу позвать подбор, не передав пожелания
         return {"options": planner.suggest_destinations(trip)}
     if name == "plan_trip":
+        if qs := planner.clarify(trip):
+            planner.clarify_text(trip)
+            return {"need_clarification": qs,
+                    "instruction": "Не собирай поездку. Задай пользователю эти вопросы одним сообщением и дождись ответа."}
         return planner.plan_trip(trip)
     if name == "get_trip_summary":
         return planner.summary(trip)
@@ -203,10 +221,8 @@ def execute(trip: Trip, name: str, args: dict) -> dict:
         return {"stops": [{"place_id": s.place.id, "name": s.place.name, "cats": s.place.cats, "arrive": s.arrive,
                            "ticket_rub": s.place.ticket_rub, "indoor": s.place.indoor} for s in d.stops],
                 "unused_nearby": [{"place_id": p.id, "name": p.name, "cats": p.cats} for p in walks.unused_places(trip)[:10]]}
-    if name == "select_transport":
-        return planner.select_transport(trip, args["option_id"])
-    if name == "select_hotel":
-        return planner.select_hotel(trip, args["hotel_id"])
+    if name in ("select_transport", "select_hotel"):
+        return _within_budget(trip, name, args)
     if name == "modify_day":
         return planner.modify_day(trip, args["day"], args["action"], args.get("category"), args.get("place_id"))
     if name == "shift_dates":
