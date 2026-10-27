@@ -5,6 +5,8 @@ MVP ИИ-агента для планирования путешествий д�
 
 ТЗ с дополнениями под трек лежит в [docs/Waylo_TZ_v2.docx](docs/Waylo_TZ_v2.docx), раздел 19.
 
+**Демо:** https://waylo-cfp5.onrender.com (бесплатный тариф Render: после 15 минут без посещений сервис засыпает, первое открытие занимает около минуты).
+
 ## Быстрый запуск
 
 Нужны Python 3.11+ с [uv](https://docs.astral.sh/uv/) и Node.js 18+.
@@ -25,6 +27,10 @@ uv run --project backend uvicorn app.main:app --app-dir backend --port 8000
 uv run --project backend python eval/run_eval.py          # офлайн-агент
 uv run --project backend python eval/run_eval.py --llm    # нейросеть из WAYLO_LLM, отчёт в eval/results_<провайдер>.md
 ```
+
+## Деплой на Render
+
+[Dockerfile](Dockerfile) собирает frontend и запускает FastAPI, [render.yaml](render.yaml) описывает бесплатный веб-сервис во Франкфурте. В панели Render: New → Blueprint → репозиторий, затем ввести `GIGACHAT_CREDENTIALS` (без ключа работает офлайн-агент). Сертификат Минцифры для GigaChat лежит в `certs/` и подхватывается сам. Сохранённые поездки хранятся в SQLite во временной папке и сбрасываются при перезапуске.
 
 ## Архитектура
 
