@@ -32,7 +32,7 @@ function expiryOk(v: string): boolean {
   return end > new Date();
 }
 
-type Errors = Partial<Record<"number" | "exp" | "cvc" | "holder", string>>;
+type Errors = Partial<Record<"number" | "exp" | "cvc", string>>;
 
 export function PaymentForm({ amount, busy, label, onPaid }: {
   amount: number; busy: boolean; label: string; onPaid: (card: string) => void;
@@ -40,7 +40,6 @@ export function PaymentForm({ amount, busy, label, onPaid }: {
   const [number, setNumber] = useState("");
   const [exp, setExp] = useState("");
   const [cvc, setCvc] = useState("");
-  const [holder, setHolder] = useState("");
   const [errors, setErrors] = useState<Errors>({});
   const [stage, setStage] = useState<"form" | "processing">("form");
   const timer = useRef<number>();
@@ -54,7 +53,6 @@ export function PaymentForm({ amount, busy, label, onPaid }: {
     if (!luhn(digits)) e.number = "Проверьте номер карты — 16 цифр";
     if (!expiryOk(exp)) e.exp = "Укажите срок ММ/ГГ, карта не должна быть просрочена";
     if (!/^\d{3}$/.test(cvc)) e.cvc = "3 цифры с обратной стороны";
-    if (holder.trim().length < 2) e.holder = "Как на карте, латиницей";
     return e;
   };
 
@@ -69,7 +67,7 @@ export function PaymentForm({ amount, busy, label, onPaid }: {
 
   const useTest = () => {
     const d = new Date(); const yy = String((d.getFullYear() + 3) % 100).padStart(2, "0");
-    setNumber(TEST_CARD); setExp(`12/${yy}`); setCvc("123"); if (!holder) setHolder("WAYLO GUEST"); setErrors({});
+    setNumber(TEST_CARD); setExp(`12/${yy}`); setCvc("123"); setErrors({});
   };
 
   if (stage === "processing" || busy) {
@@ -87,7 +85,7 @@ export function PaymentForm({ amount, busy, label, onPaid }: {
       <div className={`pay-card ${kind === "Карта" ? "" : "known"}`} aria-hidden="true">
         <div className="pay-card-top"><Icon name="card" size={22} /><b>{digits ? kind : "Банковская карта"}</b></div>
         <div className="pay-card-num">{(number || "•••• •••• •••• ••••")}</div>
-        <div className="pay-card-bottom"><span>{holder.toUpperCase() || "ИМЯ ВЛАДЕЛЬЦА"}</span><span>{exp || "ММ/ГГ"}</span></div>
+        <div className="pay-card-bottom"><span>{exp ? "до " + exp : "ММ/ГГ"}</span></div>
       </div>
 
       <label className={`field ${errors.number ? "invalid" : ""}`}>
@@ -110,12 +108,6 @@ export function PaymentForm({ amount, busy, label, onPaid }: {
           {errors.cvc && <small className="form-error">{errors.cvc}</small>}
         </label>
       </div>
-      <label className={`field ${errors.holder ? "invalid" : ""}`}>
-        <span>Владелец карты</span>
-        <input autoComplete="off" placeholder="IVAN IVANOV" value={holder} maxLength={40}
-          onChange={(e) => setHolder(e.target.value.replace(/[^a-zA-Z\s-]/g, ""))} />
-        {errors.holder && <small className="form-error">{errors.holder}</small>}
-      </label>
 
       <p className="pay-note"><Icon name="lock" size={15} />
         <span>Демо-оплата: не вводите настоящую карту. Номер проверяется только в браузере и никуда не отправляется.{" "}

@@ -74,6 +74,20 @@ def parse_request(text: str) -> dict:
                 except ValueError:
                     pass
             break
+    # диапазон через границу месяца: «с 30 октября по 4 ноября»
+    month_rx = "|".join(f"({s})" for s in MONTH_STEMS)
+    if m := re.search(rf"(\d{{1,2}})\s+(?:{month_rx})\w*\s*(?:по|до|[-–—])\s*(\d{{1,2}})\s+(?:{month_rx})", low):
+        g = m.groups()
+        m1 = next(i for i in range(12) if g[1 + i]) + 1
+        m2 = next(i for i in range(12) if g[14 + i]) + 1
+        today = date.today()
+        try:
+            s = date(today.year + (m1 < today.month), m1, int(g[0]))
+            e = date(s.year + (m2 < m1), m2, int(g[13]))
+            if e > s:
+                out.update(month=m1, start_date=s.isoformat(), nights=(e - s).days)
+        except ValueError:
+            pass
 
     # бюджет
     m = re.search(r"(\d[\d\s]*[.,]?\d*)\s*(тыс\w*|т\.р|к\b|000|руб\w*|₽|р\b)", low)
@@ -117,6 +131,11 @@ def parse_request(text: str) -> dict:
         out["adults"] = adults
     if re.search(r"с собак|с псом|с котом|с кошкой|с питомц|с животн|собака", low):
         out["pets"] = True
+
+    if re.search(r"без (ограничени\w* )?бюджет|бюджет\w* (нет|не важ|не огранич|любой)|нет бюджет|не ограничен", low):
+        out["budget_none"] = True
+    if re.search(r"на (ваше|твое|твоё) усмотрени|неважно|не важно|без разницы|все равно|решай сам|как удобн|любые", low):
+        out["delegate"] = True
 
     out["interests"] = [k for k, rx in INTERESTS.items() if re.search(rx, low)]
     wishes = []

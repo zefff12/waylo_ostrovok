@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field  # noqa: E402
 
 from . import agent_gigachat, agent_llm, agent_offline, connections, integrations, planner, store  # noqa: E402
 from .data import CITIES  # noqa: E402
-from .schemas import Order, Trip  # noqa: E402
+from .schemas import Guest, Order, Trip  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("waylo")
@@ -58,8 +58,13 @@ CARD = r"^(Visa|Mastercard|МИР|Карта) •••• \d{4}$"
 
 
 class CheckoutIn(BaseModel):
-    guest_name: str = "Гость Waylo"
+    guests: list[Guest] = Field(default_factory=list)
     card: str | None = Field(default=None, pattern=CARD)
+
+
+class RestoreIn(BaseModel):
+    trip: Trip
+    chat: list[dict] = Field(default_factory=list)
 
 
 class ExtraIn(BaseModel):
@@ -177,6 +182,16 @@ def get_trip(trip_id: str) -> dict:
     return {"trip": trip, "chat": chat_log}
 
 
+@app.post("/api/trips/restore")
+def restore_trip(body: RestoreIn) -> dict:
+    """Вернуть поездку из копии в браузере. На бесплатном Render база живёт до перезапуска сервиса,
+    поэтому браузер хранит последнюю поездку и при необходимости отдаёт её обратно."""
+    if got := store.load_trip(body.trip.id):
+        return {"trip": got[0], "chat": got[2]}
+    store.save_trip(body.trip, {}, body.chat[-200:])
+    return {"trip": body.trip, "chat": body.chat[-200:]}
+
+
 @app.get("/api/users/{user_id}/latest")
 def latest(user_id: str) -> dict:
     return {"trip_id": store.latest_trip(user_id), "profile": store.load_profile(user_id)}
@@ -256,13 +271,15 @@ def checkout(trip_id: str, body: CheckoutIn) -> dict:
         crit = next(c for c in trip.connections if c.level == "critical")
         raise HTTPException(409, f"Оформление заблокировано: {crit.text}. {crit.fix or ''}")
     kind_ru = {"confirmed": "реальные данные", "estimate": "оценка", "demo": "демо"}
+    if len(body.guests) != trip.params.travelers:
+        raise HTTPException(422, f"Нужны данные всех путешественников: {trip.params.travelers}, получено {len(body.guests)}")
     lines = [f"{i.title} — {planner.rub(i.amount)} ({kind_ru.get(i.kind, i.kind)})" for i in trip.budget.items]
     oid = "WAYLO-DEMO-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
     trip.order = Order(order_id=oid, created_at=datetime.now().isoformat(timespec="minutes"), total=trip.budget.total,
-                       lines=lines, payment=body.card)
+                       lines=lines, payment=body.card, guests=body.guests)
     trip.order.offers = planner.extra_offers(trip)
     trip.status = "purchased"
-    planner.log_tool(trip, "demo_checkout", f"{oid}: {planner.rub(trip.budget.total)}, гость «{body.guest_name}» — оплата не производилась")
+    planner.log_tool(trip, "demo_checkout", f"{oid}: {planner.rub(trip.budget.total)}, гостей: {len(body.guests)} — оплата не производилась")
     paid = f" Оплата: {body.card} (демо, деньги не списаны)." if body.card else " Реальной оплаты и брони нет."
     chat_log.append({"role": "assistant", "agent": "ui", "at": datetime.now().strftime("%H:%M"),
                      "text": f"Демо-заказ **{oid}** оформлен на {planner.rub(trip.budget.total)}.{paid}\n"

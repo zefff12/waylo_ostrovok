@@ -52,6 +52,7 @@ export interface ToolEvent { tool: string; summary: string; ok: boolean }
 export interface ExtraOffer { kind: "early_checkin" | "transfer"; title: string; note: string; amount: number; paid: boolean }
 export interface Order {
   order_id: string; created_at: string; total: number; lines: string[]; status: string; payment: string | null;
+  guests: { full_name: string; birth_date: string; document: string; child: boolean }[];
   post_purchase: string[]; offers: ExtraOffer[];
 }
 

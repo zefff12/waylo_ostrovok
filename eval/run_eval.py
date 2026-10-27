@@ -85,6 +85,8 @@ CASES = [
      lambda t: (t["status"] == "need_info" and not t["days"], "агент спросил даты и город отправления")),
     ("Ответ на уточнение", ["Я хочу съездить в Москву. Нас будет 3 взрослых. Бюджет 60 тысяч рублей", "с 12 по 15 декабря, из Казани"],
      lambda t: (t["params"]["origin"] == "kazan" and t["params"]["nights"] == 3 and len(t["days"]) > 0, "план с датами и городом из ответа")),
+    ("Переспрашивает до полной картины", ["хочу в москву", "с 30 октября по 4 ноября"],
+     lambda t: (t["status"] == "need_info" and not t["days"] and t["params"]["nights"] == 5, "после неполного ответа — снова вопрос")),
     ("Бюджет соблюдён", ["Петербург с 5 по 8 декабря из Москвы вдвоём, бюджет 45 000"],
      lambda t: (t["budget"]["total"] <= 45000, "итог не выше лимита")),
     ("Покупка", ["Казань на 3 дня"], None),  # проверяется checkout ниже
@@ -126,7 +128,7 @@ def main() -> None:
                     clar += 1
                     # агент уточняет даты и город отправления; в однострочных кейсах отвечаем как пользователь,
                     # которому всё равно, — и проверяем уже собранный план
-                    if trip["params"]["destination"] and not trip["days"] and name not in ("Уточняющие вопросы", "Ответ на уточнение"):
+                    if trip["params"]["destination"] and not trip["days"] and name not in ("Уточняющие вопросы", "Ответ на уточнение", "Переспрашивает до полной картины"):
                         r = c.post("/api/chat", json={"trip_id": trip_id, "user_id": f"eval_{len(rows)}",
                                                       "message": "На ваше усмотрение", "mode": mode})
                         r.raise_for_status()
@@ -138,7 +140,9 @@ def main() -> None:
             completed = None
             if trip and trip["days"]:
                 if name in ("Покупка", "После покупки"):
-                    r = c.post(f"/api/trips/{trip_id}/checkout", json={"guest_name": "Eval"})
+                    r = c.post(f"/api/trips/{trip_id}/checkout", json={"guests": [{"full_name": f"Иванов Гость {i + 1}", "birth_date": "1990-01-01",
+                                                                     "document": "Паспорт РФ •••• 0000"}
+                                                                    for i in range(trip["params"]["adults"] + trip["params"]["children"])]})
                     completed = r.status_code == 200
                     if completed and name == "После покупки":
                         completed = c.post(f"/api/trips/{trip_id}/extras", json={"kind": "early_checkin"}).status_code == 200

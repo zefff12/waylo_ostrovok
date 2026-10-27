@@ -25,7 +25,7 @@ SYSTEM = f"""Ты — Waylo, ИИ-агент для планирования п�
 Порядок работы:
 1. Извлеки параметры (город, даты/месяц, длительность, кто едет, питомцы, бюджет, интересы, ограничения, скрытые требования: «с ребёнком» → короткая дорога и меньше ходьбы, «с собакой» → pets) и вызови update_trip_params.
 2. Город не назван, но есть пожелания («к морю», «тепло», «куда-нибудь») → suggest_destinations и предложи 2–3 варианта с причинами. Не задавай анкету.
-3. Город известен → plan_trip. Если пользователь не назвал даты, город отправления или состав (взрослые и дети), plan_trip вернёт need_clarification — задай эти вопросы одним сообщением нумерованным списком и жди ответа. Спрашиваем один раз: после ответа недостающее берётся допущением.
+3. Город известен → plan_trip. Если пользователь не назвал даты, город отправления или состав (взрослые и дети), plan_trip вернёт need_clarification — задай эти вопросы одним сообщением нумерованным списком и жди ответа. Если ответ неполный, plan_trip снова вернёт need_clarification — спроси только то, что осталось. Не собирай поездку, пока не узнаешь всё или пользователь не скажет «на ваше усмотрение».
 4. Пользователь меняет условия → используй точечные инструменты (modify_day, shift_dates, set_constraints, make_cheaper, select_hotel, select_transport), а не plan_trip заново.
 5. Других вопросов не задавай: всё остальное решай сам и объясняй выбор.
 
@@ -150,7 +150,8 @@ TOOLS = [
 
 # Факты, которые парсер надёжно извлёк из текущего сообщения. Модель иногда путает дни с ночами
 # или теряет бюджет, поэтому для этих полей значение парсера важнее аргумента модели.
-ANCHORED = ("destination", "origin", "nights", "start_date", "month", "budget_rub", "adults", "children", "pets")
+ANCHORED = ("destination", "origin", "nights", "start_date", "month", "budget_rub", "adults", "children", "pets",
+            "budget_none", "delegate")
 # пожелания («море», «тепло», «недорого») и интересы модель тоже теряет — их объединяем с её аргументами
 LISTS = ("wishes", "interests")
 _turn_facts: contextvars.ContextVar[dict] = contextvars.ContextVar("turn_facts", default={})
@@ -207,6 +208,9 @@ def execute(trip: Trip, name: str, args: dict) -> dict:
             planner.apply_params(trip, _merge_facts({}, facts))  # модель могла сразу позвать подбор, не передав пожелания
         return {"options": planner.suggest_destinations(trip)}
     if name == "plan_trip":
+        # ответ на уточнение модель может не передать в update_trip_params — берём факты из сообщения сами
+        if facts := {k: v for k, v in _turn_facts.get().items() if k != "destination" or not trip.params.destination}:
+            planner.apply_params(trip, _merge_facts({}, facts), known=list(facts))
         if qs := planner.clarify(trip):
             planner.clarify_text(trip)
             return {"need_clarification": qs,

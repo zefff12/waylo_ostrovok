@@ -47,30 +47,59 @@ function userId(): string {
   } catch { return "anonymous"; }
 }
 
+// Память между заходами: последняя открытая поездка, переписка и вкладка хранятся в браузере.
+// Сервер на бесплатном Render теряет базу при перезапуске — тогда поездка восстанавливается из этой копии.
+const SESSION = "waylo_session_v1";
+type Saved = { trip: Trip | null; chat: ChatMsg[]; tab: Tab; mode: "auto" | "offline" };
+
+function readSaved(): Saved | null {
+  try { return JSON.parse(localStorage.getItem(SESSION) ?? "null"); } catch { return null; }
+}
+
+const DRAFT = "waylo_draft_v1";
+type Draft = Partial<{ prompt: string; city: string; from: string; to: string; adults: number; kids: number; touched: boolean }>;
+
+function readDraft(): Draft {
+  try { return JSON.parse(localStorage.getItem(DRAFT) ?? "{}"); } catch { return {}; }
+}
+
 function readPaused(): boolean {
   try { return localStorage.getItem("waylo_video_paused") === "1"; } catch { return false; }
 }
 
 export default function App() {
+  const [saved] = useState(readSaved);
   const [health, setHealth] = useState<Health | null>(null);
-  const [trip, setTrip] = useState<Trip | null>(null);
-  const [chat, setChat] = useState<ChatMsg[]>([]);
+  const [trip, setTrip] = useState<Trip | null>(saved?.trip ?? null);
+  const [chat, setChat] = useState<ChatMsg[]>(saved?.chat ?? []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("trip");
-  const [mode, setMode] = useState<"auto" | "offline">("auto");
+  const [tab, setTab] = useState<Tab>(saved?.tab ?? "trip");
+  const [mode, setMode] = useState<"auto" | "offline">(saved?.mode ?? "auto");
   const [user] = useState(userId);
   const [lastTrip, setLastTrip] = useState<string | null>(null);
   const [paused, setPaused] = useState(readPaused);
   const [chatOpen, setChatOpen] = useState(false);
   // ?intro — показать заставку и онбординг заново (удобно на презентации)
   const [intro, setIntro] = useState<"splash" | "onboarding" | null>(
-    introSeen() && !new URLSearchParams(location.search).has("intro") ? null : "splash");
+    (introSeen() || saved?.trip) && !new URLSearchParams(location.search).has("intro") ? null : "splash");
 
   useEffect(() => {
     api.health().then(setHealth).catch(() => setError("Сервер Waylo недоступен. Запустите: uv run --project backend uvicorn app.main:app --app-dir backend --port 8000"));
     api.latest(user).then((r) => setLastTrip(r.trip_id)).catch(() => undefined);
-  }, [user]);
+    // вернулись по ссылке: сверяем сохранённую поездку с сервером, а если он её забыл — отдаём копию
+    if (saved?.trip) {
+      const t = saved.trip;
+      api.trip(t.id).then(apply).catch(() => api.restore(t, saved.chat).then(apply).catch(() => undefined));
+    }
+  }, [user]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    try {
+      if (trip || chat.length) localStorage.setItem(SESSION, JSON.stringify({ trip, chat: chat.slice(-200), tab, mode }));
+      else localStorage.removeItem(SESSION);
+    } catch { /* переполнено или приватный режим — работаем без памяти */ }
+  }, [trip, chat, tab, mode]);
 
   const togglePause = () => setPaused((p) => {
     try { localStorage.setItem("waylo_video_paused", p ? "0" : "1"); } catch { /* приватный режим */ }
@@ -93,6 +122,7 @@ export default function App() {
   const reset = () => { setTrip(null); setChat([]); setError(null); setChatOpen(false); };
   const splashDone = useCallback(() => setIntro("onboarding"), []);
   const cityNames = useMemo(() => Object.fromEntries((health?.cities ?? []).map((c) => [c.id, c.name])), [health]);
+  const abroad = (health?.cities.find((c) => c.id === trip?.params.destination)?.country ?? "Россия") !== "Россия";
   const home = !trip && !chat.length;
   const scene = sceneFor(trip, health);
   const tripReady = Boolean(trip?.days.length);
@@ -135,8 +165,8 @@ export default function App() {
                     onHotel={(id) => run(() => api.hotel(trip.id, id))} />}
                   {tab === "walks" && <WalksTab trip={trip} busy={busy}
                     onDay={(d, a, extra) => run(() => api.day(trip.id, d, a, extra))} />}
-                  {tab === "checkout" && <CheckoutTab trip={trip} busy={busy}
-                    onCheckout={(n, card) => run(() => api.checkout(trip.id, n, card))}
+                  {tab === "checkout" && <CheckoutTab trip={trip} busy={busy} abroad={abroad}
+                    onCheckout={(g, card) => run(() => api.checkout(trip.id, g, card))}
                     onExtra={(k, card) => run(() => api.extras(trip.id, k, card))} />}
                 </>
               ) : <Loading busy={busy} />}
@@ -224,13 +254,17 @@ function Home({ health, onStart, lastTrip, onOpenLast, mode, setMode, paused, to
   mode: "auto" | "offline"; setMode: (m: "auto" | "offline") => void; paused: boolean; togglePause: () => void;
   error: string | null; onHelp: () => void; hidden: boolean;
 }) {
-  const [prompt, setPrompt] = useState("");
-  const [city, setCity] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [adults, setAdults] = useState(2);
-  const [kids, setKids] = useState(0);
-  const [touched, setTouched] = useState(false);
+  const [draft] = useState(readDraft);
+  const [prompt, setPrompt] = useState(draft.prompt ?? "");
+  const [city, setCity] = useState(draft.city ?? "");
+  const [from, setFrom] = useState(draft.from ?? "");
+  const [to, setTo] = useState(draft.to ?? "");
+  const [adults, setAdults] = useState(draft.adults ?? 2);
+  const [kids, setKids] = useState(draft.kids ?? 0);
+  const [touched, setTouched] = useState(draft.touched ?? false);
+  useEffect(() => {  // черновик запроса переживает перезагрузку страницы
+    try { localStorage.setItem(DRAFT, JSON.stringify({ prompt, city, from, to, adults, kids, touched })); } catch { /* приватный режим */ }
+  }, [prompt, city, from, to, adults, kids, touched]);
   const area = useRef<HTMLTextAreaElement>(null);
   const cities = health?.cities ?? [];
   const cityName = (id: string) => cities.find((c) => c.id === id)?.name ?? "";
@@ -379,12 +413,6 @@ function AgentStatus({ health, mode, setMode, compact }: {
           <option value="offline">Офлайн-агент (без LLM)</option>
         </select>
       ) : <span title="Задайте GIGACHAT_CREDENTIALS или ANTHROPIC_API_KEY в .env, чтобы включить LLM">Офлайн-агент</span>}
-      {!compact && (
-        <details>
-          <summary>Источники данных</summary>
-          <ul>{Object.entries(health.integrations).map(([k, v]) => <li key={k}><b>{k}</b>: {v}</li>)}</ul>
-        </details>
-      )}
     </div>
   );
 }

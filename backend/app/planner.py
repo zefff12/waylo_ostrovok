@@ -106,7 +106,8 @@ def missing(p: TripParams) -> list[str]:
 
 
 def clarify(trip: Trip) -> list[str]:
-    """Вопросы о том, чего пользователь не назвал. Задаём один раз: после ответа берём допущения."""
+    """Вопросы о том, чего пользователь ещё не назвал. Спрашиваем, пока не узнаем всё,
+    или пока пользователь сам не скажет «на ваше усмотрение» (тогда недостающее берём допущением)."""
     p = trip.params
     if p.clarified or not p.destination:
         return []
@@ -114,26 +115,47 @@ def clarify(trip: Trip) -> list[str]:
     if "start_date" not in p.known:
         qs.append("С какого числа планируете поездку?" if "nights" in p.known else "С какого по какое число планируете поездку?")
     elif "nights" not in p.known:
-        qs.append("На сколько дней едете?")
+        qs.append("До какого числа или на сколько дней едете?")
     if "origin" not in p.known:
         qs.append("Из какого города поедете?")
     if "adults" not in p.known and "children" not in p.known:
         qs.append("Сколько едет взрослых и будут ли дети?")
-    if qs and p.budget_rub is None:  # бюджет сам по себе не повод переспрашивать, но раз уж спрашиваем
-        qs.append("Есть ли бюджет на поездку?")
+    if "budget_rub" not in p.known and "budget_none" not in p.known:
+        qs.append("Какой бюджет на поездку? Если ограничения нет — так и напишите")
     return qs
 
 
 def clarify_text(trip: Trip) -> str:
     qs = clarify(trip)
-    trip.params.clarified = True
+    p = trip.params
     trip.status = "need_info"
-    name = CITIES[trip.params.destination].name if trip.params.destination else "поездку"  # type: ignore[index]
-    lines = [f"Соберу поездку: **{name}**. Чтобы не гадать, уточните:"]
+    name = CITIES[p.destination].name if p.destination else "поездку"  # type: ignore[index]
+    got = _known_summary(p)
+    if p.asked and got:
+        lines = [f"Спасибо, учёл: {got}. Чтобы собрать поездку точно, осталось уточнить:"]
+    else:
+        lines = [f"Соберу поездку: **{name}**. Чтобы не гадать, уточните:"]
+    p.asked += 1
     lines += [f"{i}. {q}" for i, q in enumerate(qs, 1)]
-    lines.append("Можно ответить одним сообщением, например: «с 12 по 15 декабря, из Казани, двое взрослых». "
-                 "Если неважно — напишите «на ваше усмотрение», и я возьму ближайшие выходные.")
+    lines.append("Можно ответить одним сообщением, например: «с 12 по 15 декабря, из Казани, двое взрослых, бюджет 60 000». "
+                 "Если какие-то детали неважны — напишите «на ваше усмотрение», и я подберу их сам.")
     return "\n".join(lines)
+
+
+def _known_summary(p: TripParams) -> str:
+    parts = []
+    if "start_date" in p.known and p.start_date:
+        s = date.fromisoformat(p.start_date)
+        parts.append(f"даты {s:%d.%m}–{s + timedelta(days=p.nights or 0):%d.%m}" if "nights" in p.known else f"начало {s:%d.%m}")
+    if "origin" in p.known:
+        parts.append(f"выезд из города {CITIES[p.origin].name}")
+    if "adults" in p.known or "children" in p.known:
+        parts.append(f"взрослых: {p.adults}" + (f", детей: {p.children}" if p.children else ""))
+    if "budget_rub" in p.known and p.budget_rub:
+        parts.append(f"бюджет {rub(p.budget_rub)}")
+    elif "budget_none" in p.known:
+        parts.append("без ограничения бюджета")
+    return ", ".join(parts)
 
 
 def apply_params(trip: Trip, upd: dict, known: list[str] | None = None) -> list[str]:
@@ -144,6 +166,8 @@ def apply_params(trip: Trip, upd: dict, known: list[str] | None = None) -> list[
     p = trip.params
     named = [k for k in (upd if known is None else known) if upd.get(k) not in (None, [], "")]
     p.known = list(dict.fromkeys([*p.known, *named]))
+    if upd.get("delegate"):  # «на ваше усмотрение» — пользователь разрешил не переспрашивать
+        p.clarified = True
     stale = {"start_date": "Точные даты", "nights": "Длительность", "adults": "Путешественники", "children": "Путешественники"}
     p.assumptions = [a for a in p.assumptions if not any(a.startswith(stale[k]) for k in named if k in stale)]
     for k, v in upd.items():

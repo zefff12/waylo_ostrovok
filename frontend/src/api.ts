@@ -31,7 +31,8 @@ export const api = {
   hotel: (id: string, opt: string) => post<TripResponse>(`/api/trips/${id}/hotel`, { option_id: opt }),
   day: (id: string, day: number, action: string, extra: { category?: string; place_id?: string } = {}) =>
     post<TripResponse>(`/api/trips/${id}/days/${day}`, { action, ...extra }),
-  checkout: (id: string, guest_name: string, card?: string) => post<TripResponse>(`/api/trips/${id}/checkout`, { guest_name, card }),
+  checkout: (id: string, guests: unknown[], card?: string) => post<TripResponse>(`/api/trips/${id}/checkout`, { guests, card }),
+  restore: (trip: Trip, chat: ChatMsg[]) => post<TripResponse>("/api/trips/restore", { trip, chat }),
   extras: (id: string, kind: string, card?: string) => post<TripResponse>(`/api/trips/${id}/extras`, { kind, card }),
 };
 

@@ -562,12 +562,21 @@ button.gicon:active:not(:disabled) { transform: scale(.93); }
 .offer-price { font-weight: 800; font-size: var(--fs-lg); }
 .offer.paid { opacity: .85; }
 
+/* данные путешественников */
+.guests { display: grid; gap: 14px; }
+.guest { border: 1px solid rgba(11, 23, 56, .1); border-radius: var(--r-md); padding: 12px 16px 16px; margin: 0; display: grid; gap: 12px; }
+.guest legend { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; padding: 0 6px; }
+.guest-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.guest-doc { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: end; }
+.guest-doc > small { padding-bottom: 14px; font-size: var(--fs-xs); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; transition-duration: .01ms !important; }
 }
 
 /* ---------- Адаптив ---------- */
 @media (max-width: 1180px) {
+  .guest-grid { grid-template-columns: 1fr 1fr; }
   .walks-grid { grid-template-columns: 1fr; }
   .map { position: static; height: 380px; }
   .search-fields { grid-template-columns: 1fr 1fr; }
@@ -599,6 +608,8 @@ button.gicon:active:not(:disabled) { transform: scale(.93); }
   .home-hero p { font-size: var(--fs-md); }
   .search textarea { font-size: var(--fs-md); }
   .search-fields { grid-template-columns: 1fr; }
+  .guest-grid, .guest-doc { grid-template-columns: 1fr; }
+  .guest-doc > small { padding-bottom: 0; }
   .sfield-dates input { min-width: 0; font-size: var(--fs-sm); }
   .sfield-dates small { white-space: nowrap; }
   .dates-sep { display: none; }

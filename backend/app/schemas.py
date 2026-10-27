@@ -27,7 +27,8 @@ class TripParams(BaseModel):
     transport_pref: Literal["any", "train", "plane"] = "any"
     assumptions: list[str] = Field(default_factory=list)
     known: list[str] = Field(default_factory=list)  # что пользователь назвал сам, а не взято по умолчанию
-    clarified: bool = False  # уточняющие вопросы уже задавали — второй раз не спрашиваем, берём допущения
+    clarified: bool = False  # пользователь ответил «на ваше усмотрение» — больше не переспрашиваем
+    asked: int = 0  # сколько раз агент уже задавал уточняющие вопросы
 
     @property
     def travelers(self) -> int:
@@ -206,6 +207,14 @@ class ExtraOffer(BaseModel):
     paid: bool = False
 
 
+class Guest(BaseModel):
+    """Гость в заказе. Номер документа приходит уже замаскированным: полный номер остаётся в браузере."""
+    full_name: str = Field(min_length=5, max_length=120)
+    birth_date: str
+    document: str = Field(max_length=60)  # «Паспорт РФ •••• 7890»
+    child: bool = False
+
+
 class Order(BaseModel):
     order_id: str
     created_at: str
@@ -213,6 +222,7 @@ class Order(BaseModel):
     lines: list[str]
     status: str = "DEMO — оплата не производилась, бронирований не создано"
     payment: str | None = None  # «Visa •••• 4242» — номер карты на сервер не передаётся
+    guests: list[Guest] = Field(default_factory=list)
     post_purchase: list[str] = Field(default_factory=list)
     offers: list[ExtraOffer] = Field(default_factory=list)
 

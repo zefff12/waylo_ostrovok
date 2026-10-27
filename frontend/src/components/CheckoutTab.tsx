@@ -5,11 +5,13 @@ import { rub } from "../api";
 import { KindBadge, SectionTitle } from "./TripTab";
 import { GlassIcon, Icon } from "./Icons";
 import { PaymentForm } from "./PaymentForm";
+import { GuestsForm, type GuestOut } from "./GuestsForm";
 
-export function CheckoutTab({ trip, busy, onCheckout, onExtra }: {
-  trip: Trip; busy: boolean; onCheckout: (name: string, card: string) => void; onExtra: (kind: string, card: string) => void;
+export function CheckoutTab({ trip, busy, abroad, onCheckout, onExtra }: {
+  trip: Trip; busy: boolean; abroad: boolean;
+  onCheckout: (guests: GuestOut[], card: string) => void; onExtra: (kind: string, card: string) => void;
 }) {
-  const [name, setName] = useState("");
+  const [guests, setGuests] = useState<GuestOut[] | null>(null);
   const [buying, setBuying] = useState<ExtraOffer | null>(null);
   if (!trip.days.length) return <section className="state card-solid"><Icon name="bag" size={26} /><b>Корзина пуста</b><span className="muted">Сначала соберите поездку — затем её можно оформить.</span></section>;
   const crit = trip.connections.filter((c) => c.level === "critical");
@@ -26,6 +28,7 @@ export function CheckoutTab({ trip, busy, onCheckout, onExtra }: {
           <h2>{o.order_id}</h2>
           <p className="muted">{o.payment ? `Оплата картой ${o.payment}. ` : ""}Деньги не списаны, бронирований не создано.</p>
           <ul className="order-lines">{o.lines.map((l) => <li key={l}><Icon name="check" size={15} /> {l}</li>)}</ul>
+          {o.guests?.length > 0 && <ul className="order-lines">{o.guests.map((g) => <li key={g.full_name + g.document}><Icon name="user" size={15} /> {g.full_name} · {g.document}</li>)}</ul>}
           <div className="stat-big">{rub(b.total)}<small>итого по заказу, включая доп. услуги</small></div>
         </div>
         <SectionTitle icon="bag" title="Дополнительные услуги" hint="Цена известна заранее, каждая услуга оплачивается отдельно." />
@@ -82,16 +85,19 @@ export function CheckoutTab({ trip, busy, onCheckout, onExtra }: {
         </table>
       </div>
 
-      <SectionTitle icon="card" title="3. Оплата" hint="Данные гостя и банковская карта." />
+      <SectionTitle icon="user" title="3. Путешественники" hint={`Данные всех ${trip.params.adults + trip.params.children} гостей — как в документах.`} />
       <div className="card-solid form">
-        <label className="field">
-          <span>Имя гостя для брони</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например: Алекс" maxLength={60} autoComplete="off" />
-          <small className="muted">Можно вымышленное. Если оставить пустым — «Гость Waylo».</small>
-        </label>
+        <GuestsForm adults={trip.params.adults} kids={trip.params.children} abroad={abroad}
+          tripStart={trip.params.start_date ?? new Date().toISOString().slice(0, 10)} onValid={setGuests} />
+      </div>
+
+      <SectionTitle icon="card" title="4. Оплата" hint="Данные банковской карты." />
+      <div className="card-solid form">
         {crit.length > 0
           ? <p className="form-error">Оплата недоступна: сначала исправьте критичные проблемы в шаге 1 — например, попросите агента в чате.</p>
-          : <PaymentForm amount={b.total} busy={busy} label="Оплатить" onPaid={(card) => onCheckout(name.trim() || "Гость Waylo", card)} />}
+          : !guests
+            ? <p className="form-warn"><Icon name="alert" size={15} /> Заполните данные всех путешественников в шаге 3 — после этого откроется оплата.</p>
+            : <PaymentForm amount={b.total} busy={busy} label="Оплатить" onPaid={(card) => onCheckout(guests, card)} />}
       </div>
     </section>
   );
