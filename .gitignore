@@ -1,0 +1,10 @@
+.env
+node_modules/
+frontend/dist/
+backend/.venv/
+backend/waylo.sqlite3
+__pycache__/
+*.pyc
+.env.txt
+.claude/
+frontend/tsconfig.tsbuildinfo

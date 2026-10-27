@@ -1,0 +1,12 @@
+.env
+.env.txt
+**/node_modules
+frontend/dist
+frontend/tsconfig.tsbuildinfo
+backend/.venv
+backend/waylo.sqlite3
+**/__pycache__
+.claude
+.git
+docs
+eval

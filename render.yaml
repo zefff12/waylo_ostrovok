@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: waylo
+    runtime: docker
+    plan: free
+    region: frankfurt
+    healthCheckPath: /api/health
+    envVars:
+      - key: WAYLO_LLM
+        value: gigachat
+      - key: GIGACHAT_MODEL
+        value: GigaChat-2-Max
+      - key: WAYLO_HOME_VIDEO
+        value: https://youtu.be/lyh2kAjcmSY
+      # секреты вводятся в панели Render при создании сервиса
+      - key: GIGACHAT_CREDENTIALS
+        sync: false
+      - key: YANDEX_JS_API_KEY
+        sync: false
