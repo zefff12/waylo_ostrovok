@@ -4,8 +4,8 @@ import { Icon } from "./Icons";
 
 /**
  * Данные путешественников для брони: ФИО, дата рождения и документ.
- * Документ выбирается сам: за границу — загранпаспорт, по России — паспорт РФ,
- * детям до 14 лет — свидетельство о рождении. Пассажиров из профиля можно подставить одним нажатием.
+ * Документ выбирается по возрасту на дату поездки: до 14 лет — свидетельство о рождении,
+ * с 14 лет — паспорт РФ. Гостей из профиля можно подставить одним нажатием.
  */
 export type GuestDraft = { last: string; first: string; middle: string; birth: string; doc: string };
 export type GuestOut = { full_name: string; birth_date: string; document: string; child: boolean };
@@ -16,16 +16,12 @@ export const PASSPORT: DocKind = {
   label: "Паспорт РФ", placeholder: "1234 567890", rx: /^\d{4} \d{6}$/, hint: "Серия и номер: 10 цифр",
   format: (v) => { const d = v.replace(/\D/g, "").slice(0, 10); return d.length > 4 ? `${d.slice(0, 4)} ${d.slice(4)}` : d; },
 };
-export const FOREIGN: DocKind = {
-  label: "Загранпаспорт", placeholder: "75 1234567", rx: /^\d{2} \d{7}$/, hint: "Серия и номер: 9 цифр",
-  format: (v) => { const d = v.replace(/\D/g, "").slice(0, 9); return d.length > 2 ? `${d.slice(0, 2)} ${d.slice(2)}` : d; },
-};
 export const BIRTH: DocKind = {
   label: "Свидетельство о рождении", placeholder: "IV-МЮ 123456", rx: /^[IVXLC]{1,4}-[А-ЯЁ]{2} \d{6}$/,
   hint: "Римские цифры, две буквы и 6 цифр: IV-МЮ 123456",
   format: (v) => v.toUpperCase().replace(/[^IVXLCА-ЯЁ0-9\- ]/g, "").slice(0, 14),
 };
-export const DOC_KINDS = [PASSPORT, FOREIGN, BIRTH];
+export const DOC_KINDS = [PASSPORT, BIRTH];
 export const NAME_RX = /^[А-ЯЁA-Z][а-яёa-z'-]+(?:[ -][А-ЯЁA-Z][а-яёa-z'-]+)*$/;
 
 const EMPTY: GuestDraft = { last: "", first: "", middle: "", birth: "", doc: "" };
@@ -37,14 +33,16 @@ export function ageAt(birth: string, at: string): number {
   return a;
 }
 
-function docKind(g: GuestDraft, abroad: boolean, tripStart: string, child: boolean): DocKind {
-  if (abroad) return FOREIGN;
-  if (!g.birth) return child ? BIRTH : PASSPORT;  // пока дата не указана — самый вероятный документ
-  return ageAt(g.birth, tripStart) < 14 ? BIRTH : PASSPORT;
+/** Документ по возрасту: до 14 лет — свидетельство о рождении, с 14 — паспорт РФ. */
+export function docFor(birth: string, at: string, child = false): DocKind {
+  if (!birth) return child ? BIRTH : PASSPORT;  // пока дата не указана — самый вероятный документ
+  return ageAt(birth, at) < 14 ? BIRTH : PASSPORT;
 }
 
-export function GuestsForm({ adults, kids, abroad, tripStart, saved, onValid }: {
-  adults: number; kids: number; abroad: boolean; tripStart: string; saved: SavedGuest[];
+const docKind = (g: GuestDraft, tripStart: string, child: boolean) => docFor(g.birth, tripStart, child);
+
+export function GuestsForm({ adults, kids, tripStart, saved, onValid }: {
+  adults: number; kids: number; tripStart: string; saved: SavedGuest[];
   onValid: (g: GuestOut[] | null, drafts: (GuestDraft & { doc_kind: string })[], remember: boolean) => void;
 }) {
   const total = adults + kids;
@@ -65,30 +63,30 @@ export function GuestsForm({ adults, kids, abroad, tripStart, saved, onValid }: 
       else if (!child && age < 18) e.birth = "Взрослому на момент поездки должно быть 18+";
       else if (child && age >= 18) e.birth = "Ребёнку на момент поездки должно быть меньше 18";
     }
-    const k = docKind(g, abroad, tripStart, child);
+    const k = docKind(g, tripStart, child);
     if (!k.rx.test(g.doc.trim())) e.doc = k.hint;
     return e;
   };
 
   useEffect(() => {
     const ok = guests.every((g, i) => Object.keys(errorsOf(g, i)).length === 0);
-    const drafts = guests.map((g, i) => ({ ...g, doc_kind: docKind(g, abroad, tripStart, i >= adults).label }));
+    const drafts = guests.map((g, i) => ({ ...g, doc_kind: docKind(g, tripStart, i >= adults).label }));
     onValid(ok ? guests.map((g, i) => ({
       full_name: [g.last, g.first, g.middle].map((x) => x.trim()).filter(Boolean).join(" "),
       birth_date: g.birth, child: i >= adults,
       document: `${drafts[i].doc_kind} •••• ${g.doc.replace(/\s/g, "").slice(-4)}`,  // в заказ — только последние цифры
     })) : null, drafts, remember);
-  }, [guests, remember, abroad, tripStart]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [guests, remember, tripStart]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (i: number, k: keyof GuestDraft, v: string) =>
     setGuests((gs) => gs.map((g, j) => (j === i ? { ...g, [k]: v } : g)));
   const show = (i: number, k: string) => touched[`${i}.${k}`];
   const touch = (i: number, k: string) => setTouched((t) => ({ ...t, [`${i}.${k}`]: true }));
 
-  // подставить пассажира из профиля: документ — только если его тип подходит этой поездке
+  // подставить гостя из профиля: документ — только если его тип подходит возрасту на дату поездки
   const pick = (i: number, s: SavedGuest) => {
     const g = { last: s.last, first: s.first, middle: s.middle, birth: s.birth, doc: "" };
-    const need = docKind(g, abroad, tripStart, i >= adults);
+    const need = docKind(g, tripStart, i >= adults);
     g.doc = s.doc_kind === need.label ? s.doc : "";
     setGuests((gs) => gs.map((x, j) => (j === i ? g : x)));
     setTouched((t) => ({ ...t, ...Object.fromEntries(["last", "first", "middle", "birth", "doc"].map((k) => [`${i}.${k}`, true])) }));
@@ -99,7 +97,7 @@ export function GuestsForm({ adults, kids, abroad, tripStart, saved, onValid }: 
     <div className="guests">
       {guests.map((g, i) => {
         const e = errorsOf(g, i);
-        const k = docKind(g, abroad, tripStart, i >= adults);
+        const k = docKind(g, tripStart, i >= adults);
         // взрослому месту — только взрослые на дату поездки, детскому — только дети
         const options = saved.filter((s) => !used.has(`${s.last}|${s.first}|${s.birth}`)
           && (ageAt(s.birth, tripStart) >= 18) === (i < adults));
@@ -115,7 +113,7 @@ export function GuestsForm({ adults, kids, abroad, tripStart, saved, onValid }: 
           <fieldset key={i} className="guest">
             <legend><Icon name="user" size={16} /> {i < adults ? `Взрослый ${i + 1}` : `Ребёнок ${i - adults + 1}`}</legend>
             {options.length > 0 && (
-              <div className="saved-pick" role="group" aria-label="Сохранённые пассажиры">
+              <div className="saved-pick" role="group" aria-label="Сохранённые гости">
                 <small className="muted">Из профиля:</small>
                 {options.map((s) => (
                   <button key={s.id} type="button" className="chip" onClick={() => pick(i, s)}>
@@ -133,9 +131,8 @@ export function GuestsForm({ adults, kids, abroad, tripStart, saved, onValid }: 
             <div className="guest-doc">
               {field("doc", k.label, { placeholder: k.placeholder, maxLength: 14, inputMode: k === BIRTH ? "text" : "numeric" })}
               <small className="muted">
-                {abroad ? "Поездка за границу — нужен загранпаспорт, в том числе детям."
-                  : i >= adults ? "До 14 лет — свидетельство о рождении, с 14 лет — паспорт РФ. Тип подберётся по дате рождения."
-                    : "Паспорт гражданина РФ."}
+                {i >= adults ? "До 14 лет — свидетельство о рождении, с 14 лет — паспорт РФ. Тип подберётся по дате рождения."
+                  : "Паспорт гражданина РФ."}
               </small>
             </div>
           </fieldset>
@@ -143,7 +140,7 @@ export function GuestsForm({ adults, kids, abroad, tripStart, saved, onValid }: 
       })}
       <label className="agree">
         <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-        <span>Сохранить пассажиров в профиль — в следующий раз их можно будет подставить одним нажатием.</span>
+        <span>Сохранить гостей в профиль — в следующий раз их можно будет подставить одним нажатием.</span>
       </label>
     </div>
   );

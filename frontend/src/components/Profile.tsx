@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, rub, type Auth } from "../api";
 import type { Me, SavedGuest } from "../types";
-import { DOC_KINDS, NAME_RX } from "./GuestsForm";
+import { NAME_RX, docFor } from "./GuestsForm";
 import { GlassIcon, Icon } from "./Icons";
 
 const STATUS: Record<string, string> = {
@@ -11,7 +11,7 @@ const STATUS: Record<string, string> = {
 
 const fmtDate = (iso: string) => new Date(iso + (iso.length === 10 ? "T00:00" : "")).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
 
-/** Окно профиля: вход и регистрация, а после входа — поездки, оплаты и сохранённые пассажиры. */
+/** Окно профиля: вход и регистрация, а после входа — поездки, оплаты и сохранённые гости. */
 export function ProfileSheet({ auth, device, reason, onAuth, onLogout, onOpenTrip, onClose }: {
   auth: Auth | null; device: string; reason?: string;
   onAuth: (a: Auth) => void; onLogout: () => void; onOpenTrip: (id: string) => void; onClose: () => void;
@@ -107,7 +107,7 @@ function Cabinet({ auth, onLogout, onOpenTrip }: { auth: Auth; onLogout: () => v
       <nav className="segmented support-tabs" aria-label="Разделы профиля">
         <button className={tab === "trips" ? "on" : ""} onClick={() => setTab("trips")}>Поездки{me ? ` · ${me.trips.length}` : ""}</button>
         <button className={tab === "orders" ? "on" : ""} onClick={() => setTab("orders")}>Оплаты{me ? ` · ${me.orders.length}` : ""}</button>
-        <button className={tab === "guests" ? "on" : ""} onClick={() => setTab("guests")}>Пассажиры{me ? ` · ${me.guests.length}` : ""}</button>
+        <button className={tab === "guests" ? "on" : ""} onClick={() => setTab("guests")}>Гости{me ? ` · ${me.guests.length}` : ""}</button>
       </nav>
       {error && <p className="form-error">{error}</p>}
       {!me ? <div className="spinner" /> : tab === "trips" ? (
@@ -139,18 +139,20 @@ function Cabinet({ auth, onLogout, onOpenTrip }: { auth: Auth; onLogout: () => v
             ))}
           </ul>
         ) : <p className="muted">Оплат пока нет.</p>
-      ) : <Passengers guests={me.guests} onChange={load} />}
+      ) : <Guests guests={me.guests} onChange={load} />}
       <button className="link logout" onClick={() => { api.logout().catch(() => undefined); onLogout(); }}>Выйти из профиля</button>
     </div>
   );
 }
 
-const EMPTY = { last: "", first: "", middle: "", birth: "", doc: "", doc_kind: DOC_KINDS[0].label };
+const EMPTY = { last: "", first: "", middle: "", birth: "", doc: "", doc_kind: "" };
+const today = () => new Date().toISOString().slice(0, 10);
 
-function Passengers({ guests, onChange }: { guests: SavedGuest[]; onChange: () => void }) {
+function Guests({ guests, onChange }: { guests: SavedGuest[]; onChange: () => void }) {
   const [edit, setEdit] = useState<(typeof EMPTY & { id?: string }) | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const kind = DOC_KINDS.find((k) => k.label === edit?.doc_kind) ?? DOC_KINDS[0];
+  // документ по возрасту, как при оформлении: до 14 лет — свидетельство о рождении, с 14 — паспорт РФ
+  const kind = docFor(edit?.birth ?? "", today());
 
   const save = async () => {
     if (!edit) return;
@@ -158,7 +160,7 @@ function Passengers({ guests, onChange }: { guests: SavedGuest[]; onChange: () =
     if (edit.middle.trim() && !NAME_RX.test(edit.middle.trim())) return setError("Проверьте отчество");
     if (!edit.birth || new Date(edit.birth) > new Date()) return setError("Укажите дату рождения");
     if (edit.doc && !kind.rx.test(edit.doc.trim())) return setError(kind.hint);
-    try { await api.saveGuest({ ...edit, last: edit.last.trim(), first: edit.first.trim(), middle: edit.middle.trim() }); setEdit(null); setError(null); onChange(); }
+    try { await api.saveGuest({ ...edit, doc_kind: kind.label, last: edit.last.trim(), first: edit.first.trim(), middle: edit.middle.trim() }); setEdit(null); setError(null); onChange(); }
     catch (e) { setError((e as Error).message); }
   };
 
@@ -172,16 +174,12 @@ function Passengers({ guests, onChange }: { guests: SavedGuest[]; onChange: () =
         </div>
         <div className="pay-row">
           <label className="field"><span>Отчество, если есть</span><input value={edit.middle} onChange={(e) => set("middle", e.target.value)} maxLength={40} /></label>
-          <label className="field"><span>Дата рождения</span><input type="date" value={edit.birth} max={new Date().toISOString().slice(0, 10)} onChange={(e) => set("birth", e.target.value)} /></label>
+          <label className="field"><span>Дата рождения</span><input type="date" value={edit.birth} max={today()}
+            onChange={(e) => { const v = e.target.value; setEdit((x) => x && ({ ...x, birth: v, doc: docFor(v, today()) === kind ? x.doc : "" })); }} /></label>
         </div>
-        <div className="pay-row">
-          <label className="field"><span>Документ</span>
-            <select value={edit.doc_kind} onChange={(e) => setEdit((x) => x && ({ ...x, doc_kind: e.target.value, doc: "" }))}>
-              {DOC_KINDS.map((k) => <option key={k.label}>{k.label}</option>)}
-            </select></label>
-          <label className="field"><span>Серия и номер</span>
-            <input value={edit.doc} placeholder={kind.placeholder} onChange={(e) => set("doc", kind.format(e.target.value))} maxLength={14} /></label>
-        </div>
+        <label className="field"><span>{kind.label}</span>
+          <input value={edit.doc} placeholder={kind.placeholder} onChange={(e) => set("doc", kind.format(e.target.value))} maxLength={14} />
+          <small className="muted">До 14 лет — свидетельство о рождении, с 14 лет — паспорт РФ. Тип подберётся по дате рождения.</small></label>
         {error && <p className="form-error">{error}</p>}
         <div className="clarify-actions">
           <button className="btn primary">Сохранить</button>
@@ -207,8 +205,8 @@ function Passengers({ guests, onChange }: { guests: SavedGuest[]; onChange: () =
             </li>
           ))}
         </ul>
-      ) : <p className="muted">Сохранённых пассажиров пока нет. Их можно добавить здесь или при оформлении поездки.</p>}
-      <button className="btn" onClick={() => setEdit({ ...EMPTY })}><Icon name="user" size={16} /> Добавить пассажира</button>
+      ) : <p className="muted">Сохранённых гостей пока нет. Их можно добавить здесь или при оформлении поездки.</p>}
+      <button className="btn" onClick={() => setEdit({ ...EMPTY })}><Icon name="user" size={16} /> Добавить гостя</button>
     </div>
   );
 }

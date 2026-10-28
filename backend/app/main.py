@@ -133,14 +133,14 @@ def liveness() -> dict:
     """Проверка живости для docker compose и Render: отвечает, если сервер поднят и база доступна."""
     with db.connect() as c:
         c.one("SELECT 1")
-    return {"status": "ok", "db": db.kind()}
+    return {"status": "ok"}
 
 
 @app.get("/api/health")
 def health() -> dict:
     p = provider()
     model = {"claude": agent_llm.MODEL, "gigachat": agent_gigachat.MODEL}.get(p)
-    return {"ok": True, "agent": p, "model": model, "provider_label": PROVIDER_LABEL.get(p),
+    return {"ok": True, "db": db.kind(), "agent": p, "model": model, "provider_label": PROVIDER_LABEL.get(p),
             "integrations": integrations.status(), "cities": [{"id": c.id, "name": c.name, "country": c.country, "tags": c.tags} for c in CITIES.values()],
             # ключ JavaScript API публичный по устройству: он защищён ограничением по HTTP Referer в кабинете Яндекса
             "yandex_js_key": os.getenv("YANDEX_JS_API_KEY") or None,
@@ -304,7 +304,11 @@ def me(authorization: str | None = Header(default=None)) -> dict:
 
 @app.post("/api/me/guests")
 def save_guest(body: accounts.Guest, authorization: str | None = Header(default=None)) -> dict:
-    return accounts.save_guest(_account(authorization).id, body).model_dump()
+    acc = _account(authorization)
+    body.doc_kind = accounts.doc_kind_for(body.birth)
+    if body.doc and not accounts.doc_ok(body.doc, body.doc_kind):
+        raise HTTPException(422, f"Проверьте номер документа «{body.doc_kind}»")
+    return accounts.save_guest(acc.id, body).model_dump()
 
 
 @app.delete("/api/me/guests/{guest_id}")

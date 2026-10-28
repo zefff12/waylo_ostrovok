@@ -1,4 +1,4 @@
-"""Профиль пользователя: регистрация, вход, сессии и сохранённые пассажиры.
+"""Профиль пользователя: регистрация, вход, сессии и сохранённые гости.
 
 Пароль хранится как PBKDF2-SHA256 с солью, сессия — случайный токен, в базе лежит только его хеш.
 Без входа поездку можно собрать, но нельзя оплатить.
@@ -12,6 +12,7 @@ import secrets
 import time
 import uuid
 from collections import defaultdict
+from datetime import date
 
 from pydantic import BaseModel, Field
 
@@ -31,7 +32,7 @@ class Account(BaseModel):
 
 
 class Guest(BaseModel):
-    """Сохранённый пассажир. Номер документа хранится полностью — его подставляют при оформлении."""
+    """Сохранённый гость. Номер документа хранится полностью — его подставляют при оформлении."""
     id: str = ""
     last: str = Field(min_length=1, max_length=40)
     first: str = Field(min_length=1, max_length=40)
@@ -39,6 +40,21 @@ class Guest(BaseModel):
     birth: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     doc: str = Field(default="", max_length=20)
     doc_kind: str = Field(default="", max_length=40)
+
+
+PASSPORT, BIRTH_CERT = "Паспорт РФ", "Свидетельство о рождении"
+DOC_RX = {PASSPORT: re.compile(r"^\d{4} \d{6}$"), BIRTH_CERT: re.compile(r"^[IVXLC]{1,4}-[А-ЯЁ]{2} \d{6}$")}
+
+
+def doc_kind_for(birth: str, at: date | None = None) -> str:
+    """Документ по возрасту, как в форме оформления: до 14 лет — свидетельство о рождении, с 14 — паспорт РФ."""
+    b, d = date.fromisoformat(birth), at or date.today()
+    age = d.year - b.year - ((d.month, d.day) < (b.month, b.day))
+    return BIRTH_CERT if age < 14 else PASSPORT
+
+
+def doc_ok(doc: str, kind: str) -> bool:
+    return bool(DOC_RX[kind].match(doc.strip()))
 
 
 def normalize_login(raw: str) -> str | None:
@@ -124,7 +140,7 @@ def save_guest(account_id: str, g: Guest) -> Guest:
     """Тот же человек (ФИО + дата рождения) обновляется, а не дублируется."""
     mine = guests(account_id)
     if g.id and g.id not in {x.id for x in mine}:
-        g.id = ""  # чужой или устаревший id: сохраняем как нового пассажира, а не поверх чужого
+        g.id = ""  # чужой или устаревший id: сохраняем как нового гостя, а не поверх чужого
     same = next((x for x in mine if (x.last.lower(), x.first.lower(), x.birth) == (g.last.lower(), g.first.lower(), g.birth)), None)
     g.id = g.id or (same.id if same else "g_" + uuid.uuid4().hex[:10])
     with connect() as c:

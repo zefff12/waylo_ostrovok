@@ -145,19 +145,18 @@ export default function App() {
   const onLogout = () => { saveAuth(null); setAuth(null); setSavedGuests([]); };
   const openTrip = (id: string) => { setProfile(null); setTab("trip"); run(() => api.trip(id)); };
 
-  // сохранённые пассажиры нужны при оформлении — подтягиваем их из профиля
+  // сохранённые гости нужны при оформлении — подтягиваем их из профиля
   useEffect(() => {
     if (auth && tab === "checkout") api.me().then((m) => setSavedGuests(m.guests)).catch(() => undefined);
   }, [auth, tab]);
 
   const checkout = async (tripId: string, guests: GuestOut[], card: string, toSave: (GuestDraft & { doc_kind: string })[]) => {
     await Promise.all(toSave.map((g) => api.saveGuest({ ...g, last: g.last.trim(), first: g.first.trim(), middle: g.middle.trim() })
-      .catch(() => undefined)));  // пассажир не сохранился — оплате это не мешает
+      .catch(() => undefined)));  // гость не сохранился — оплате это не мешает
     return api.checkout(tripId, guests, card);
   };
   const closeSupport = useCallback(() => setSupportOpen(false), []);
   const cityNames = useMemo(() => Object.fromEntries((health?.cities ?? []).map((c) => [c.id, c.name])), [health]);
-  const abroad = (health?.cities.find((c) => c.id === trip?.params.destination)?.country ?? "Россия") !== "Россия";
   const home = !trip && !chat.length;
   const scene = sceneFor(trip, health);
   const tripReady = Boolean(trip?.days.length) && !trip?.budget_gap;  // нет варианта в бюджет — нечего гулять и оплачивать
@@ -203,7 +202,7 @@ export default function App() {
                     onHotel={(id) => run(() => api.hotel(trip.id, id))} onSend={send} />}
                   {tab === "walks" && <WalksTab trip={trip} busy={busy}
                     onDay={(d, a, extra) => run(() => api.day(trip.id, d, a, extra))} />}
-                  {tab === "checkout" && <CheckoutTab trip={trip} busy={busy} abroad={abroad} auth={auth} saved={savedGuests}
+                  {tab === "checkout" && <CheckoutTab trip={trip} busy={busy} auth={auth} saved={savedGuests}
                     onLogin={() => setProfile({ reason: "Чтобы оплатить поездку, войдите в профиль или создайте его." })}
                     onCheckout={(g, card, toSave) => run(() => checkout(trip.id, g, card, toSave))}
                     onExtra={(k, card) => run(() => api.extras(trip.id, k, card))} />}

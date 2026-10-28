@@ -9,8 +9,8 @@ import { GuestsForm, type GuestDraft, type GuestOut } from "./GuestsForm";
 import type { Auth } from "../api";
 import type { SavedGuest } from "../types";
 
-export function CheckoutTab({ trip, busy, abroad, auth, saved, onLogin, onCheckout, onExtra }: {
-  trip: Trip; busy: boolean; abroad: boolean; auth: Auth | null; saved: SavedGuest[]; onLogin: () => void;
+export function CheckoutTab({ trip, busy, auth, saved, onLogin, onCheckout, onExtra }: {
+  trip: Trip; busy: boolean; auth: Auth | null; saved: SavedGuest[]; onLogin: () => void;
   onCheckout: (guests: GuestOut[], card: string, toSave: (GuestDraft & { doc_kind: string })[]) => void;
   onExtra: (kind: string, card: string) => void;
 }) {
@@ -91,7 +91,7 @@ export function CheckoutTab({ trip, busy, abroad, auth, saved, onLogin, onChecko
 
       {!auth ? (
         <>
-          <SectionTitle icon="user" title="3. Профиль" hint="Оплатить поездку можно только из профиля — в нём сохранятся заказ и пассажиры." />
+          <SectionTitle icon="user" title="3. Профиль" hint="Оплатить поездку можно только из профиля — в нём сохранятся заказ и гости." />
           <div className="card-solid login-gate">
             <span className="gicon gicon-md as-icon"><Icon name="user" size={19} /></span>
             <div><b>Войдите или зарегистрируйтесь</b><span className="muted">Это займёт минуту. Собранный план никуда не денется.</span></div>
@@ -102,7 +102,7 @@ export function CheckoutTab({ trip, busy, abroad, auth, saved, onLogin, onChecko
         <>
           <SectionTitle icon="user" title="3. Путешественники" hint={`Данные всех ${trip.params.adults + trip.params.children} гостей — как в документах.`} />
           <div className="card-solid form">
-            <GuestsForm adults={trip.params.adults} kids={trip.params.children} abroad={abroad} saved={saved}
+            <GuestsForm adults={trip.params.adults} kids={trip.params.children} saved={saved}
               tripStart={trip.params.start_date ?? new Date().toISOString().slice(0, 10)}
               onValid={(g, list, remember) => { setGuests(g); setDrafts({ list, remember }); }} />
           </div>

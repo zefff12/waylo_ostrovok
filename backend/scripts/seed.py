@@ -1,6 +1,6 @@
-"""Демо-данные: тестовый профиль с двумя сохранёнными пассажирами.
+"""Демо-данные: тестовый профиль с двумя сохранёнными гостями.
 
-    docker compose exec app backend/.venv/bin/python backend/scripts/seed.py
+    docker compose exec app bash -lc "backend/.venv/bin/python backend/scripts/seed.py"
 
 Повторный запуск ничего не ломает: если профиль уже есть, скрипт только сообщает об этом.
 Таблицы создаются автоматически при первом подключении к базе.
@@ -25,4 +25,4 @@ accounts.save_guest(acc.id, accounts.Guest(last="Иванова", first="Анн�
                                            doc="4510 123456", doc_kind="Паспорт РФ"))
 accounts.save_guest(acc.id, accounts.Guest(last="Иванова", first="Мария", middle="Петровна", birth="2018-07-20",
                                            doc="IV-МЮ 123456", doc_kind="Свидетельство о рождении"))
-print(f"Создан профиль {LOGIN} / {PASSWORD} с двумя пассажирами")
+print(f"Создан профиль {LOGIN} / {PASSWORD} с двумя гостями")

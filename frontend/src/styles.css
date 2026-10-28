@@ -544,7 +544,8 @@ button.gicon:active:not(:disabled) { transform: scale(.93); }
 .pay-card-top { display: flex; align-items: center; justify-content: space-between; }
 .pay-card-num { font-size: clamp(16px, 4.6vw, 21px); letter-spacing: .12em; font-weight: 700; font-variant-numeric: tabular-nums; }
 .pay-card-bottom { display: flex; justify-content: space-between; font-size: var(--fs-xs); letter-spacing: .08em; opacity: .85; }
-.pay-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pay-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.pay-row input { min-width: 0; width: 100%; }
 .field.invalid input { border-color: rgba(210, 52, 58, .6); background: #FFF8F8; }
 .field .form-error { margin: 0; }
 .pay-note { display: flex; gap: 6px; align-items: flex-start; font-size: var(--fs-xs); color: var(--muted); margin: 0; }
