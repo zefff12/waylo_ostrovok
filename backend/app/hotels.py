@@ -1,11 +1,3 @@
-"""Отели и их сравнение по тому, что важно пользователю.
-
-Открытого API цен и наличия номеров нет. Поэтому отели берутся реальные — из выгрузки OpenStreetMap
-(app/hotels_osm.json, обновляется scripts/fetch_hotels.py): название, тип, звёзды, координаты, адрес, сайт.
-Цена за ночь — оценка Waylo по уровню цен города, звёздам, удалённости и сезону. Отмена, питание, рейтинг
-и допуск детей в OSM не публикуются, они демо (детерминированы по id отеля). Что из этого какое,
-видно в Hotel.facts. Если в выгрузке для города мало отелей, список добирается вымышленными демо-отелями.
-"""
 from __future__ import annotations
 
 import json
@@ -28,7 +20,6 @@ CANCEL_TEXT = {
 }
 MEALS_TEXT = {"none": "без питания", "breakfast": "завтрак включён", "half_board": "завтрак и ужин"}
 TYPE_RU = {"hotel": "Отель", "hostel": "Хостел", "guest_house": "Гостевой дом", "apartment": "Апартаменты"}
-# сетевые и исторические отели высокого класса — если звёзды в OSM не указаны
 LUXURY = re.compile(r"hilton|marriott|hyatt|ritz|four seasons|kempinski|waldorf|corinthia|radisson collection|"
                     r"intercontinental|st\. regis|mandarin|rixos|jumeirah|националь|астория|metropol|метрополь", re.I)
 STAR_K = {1: 0.3, 2: 0.45, 3: 0.85, 4: 1.3, 5: 2.3}
@@ -49,7 +40,6 @@ def _readable(name: str) -> bool:
 
 
 def _pick(items: list[dict], focus: tuple[float, float]) -> list[dict]:
-    """~10 вариантов рядом с местами прогулок, но разных: хостел, гостевой дом, подальше и подешевле."""
     for h in items:
         h["_d"] = km(h["lat"], h["lon"], *focus)
     by_d = sorted(items, key=lambda h: h["_d"])
@@ -72,14 +62,14 @@ def _price(city: City, p: TripParams, stars: int, kind: str, dist: float, meals:
            rnd: random.Random) -> int:
     k = 0.35 if kind == "hostel" else STAR_K[stars] * (0.9 if kind in ("apartment", "guest_house") else 1)
     base = city.hotel_level * k
-    base *= 1.25 - min(dist, 4) * 0.08  # ближе к местам прогулок дороже
+    base *= 1.25 - min(dist, 4) * 0.08
     base *= {"none": 1.0, "breakfast": 1.12, "half_board": 1.3}[meals]
     base *= {"free": 1.08, "partial": 1.0, "non_refundable": 0.88}[cancel]
     if "sea" in city.tags and p.month:
         base *= 1.3 if 6 <= p.month <= 9 else 0.85 if p.month in (11, 12, 1, 2, 3) else 1.0
     if p.travelers > 2:
         base *= 1 + 0.35 * (p.travelers - 2)
-    base *= rnd.uniform(0.9, 1.1)  # у соседних отелей одного класса цены всё же разные
+    base *= rnd.uniform(0.9, 1.1)
     return int(round(base / 100) * 100)
 
 
@@ -118,7 +108,6 @@ def _from_osm(city: City, p: TripParams, h: dict, fetched: str) -> Hotel:
         early_checkin_price=int(round(price * 0.5 / 100) * 100),
         distance_center_km=round(h["_d"], 1), kind="estimate",
         source=f"OpenStreetMap ({fetched}): название, адрес, координаты; цена — оценка Waylo",
-        # ссылка из открытых данных уходит в href — пропускаем только http(s)
         website=h["website"] if re.match(r"https?://", h["website"] or "") else None, osm_url=f"https://www.openstreetmap.org/{h['osm']}",
         facts={"name": "confirmed", "location": "confirmed",
                "stars": "confirmed" if h["stars"] else "estimate",
@@ -128,7 +117,6 @@ def _from_osm(city: City, p: TripParams, h: dict, fetched: str) -> Hotel:
 
 
 def _demo(city: City, p: TripParams, count: int) -> list[Hotel]:
-    """Вымышленные отели — только если реальных в выгрузке не хватило."""
     rnd = random.Random(f"waylo-{city.id}")
     hotels: list[Hotel] = []
     nights = p.nights or 1
@@ -158,10 +146,9 @@ def _demo(city: City, p: TripParams, count: int) -> list[Hotel]:
 
 
 def rank(hotels: list[Hotel], p: TripParams, focus: tuple[float, float]) -> list[Hotel]:
-    """Оценка 0–100 по взвешенным критериям. Жёсткие ограничения (питомцы, дети) отсекают варианты."""
     pool = [h for h in hotels if (not p.pets or h.pets_allowed) and (not p.children or h.kids_friendly)]
     if not pool:
-        pool = hotels  # не прячем всё — объясним риск
+        pool = hotels
     w = {"price": 0.35, "location": 0.3, "cancel": 0.15, "rating": 0.15, "meals": 0.05}
     if p.priority == "price" or "cheap" in p.wishes:
         w.update(price=0.5, location=0.2, cancel=0.1, rating=0.15)
@@ -171,11 +158,11 @@ def rank(hotels: list[Hotel], p: TripParams, focus: tuple[float, float]) -> list
         w.update(cancel=0.35, price=0.25, location=0.2)
     nightly_budget = None
     if p.budget_rub and p.nights:
-        nightly_budget = p.budget_rub * 0.45 / p.nights  # ориентир: ~45% бюджета на жильё
+        nightly_budget = p.budget_rub * 0.45 / p.nights
     cheapest = min(h.total for h in pool)
     for h in pool:
         d_focus = km(h.lat, h.lon, *focus)
-        h.distance_center_km = round(d_focus, 1)  # показываем расстояние до мест прогулок, а не до «нулевого километра»
+        h.distance_center_km = round(d_focus, 1)
         s_price = cheapest / h.total
         s_loc = max(0.0, 1 - d_focus / 5)
         s_cancel = {"free": 1, "partial": 0.5, "non_refundable": 0}[h.cancellation]
@@ -186,7 +173,7 @@ def rank(hotels: list[Hotel], p: TripParams, focus: tuple[float, float]) -> list
         if nightly_budget and h.price_per_night > nightly_budget * 1.3:
             score -= 0.15
         if h.stars <= 2 and p.priority != "price" and "cheap" not in p.wishes:
-            score -= 0.12  # хостел — только если явно экономим
+            score -= 0.12
         h.score = round(score * 100, 1)
         h.explanation = _explain(h, p, d_focus, pool, nightly_budget)
     pool.sort(key=lambda h: -h.score)

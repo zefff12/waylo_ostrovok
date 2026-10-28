@@ -1,4 +1,3 @@
-"""Поездки, история диалога с LLM и профиль предпочтений (память между сессиями)."""
 from __future__ import annotations
 
 import json
@@ -41,7 +40,6 @@ def trips_of(user_id: str, limit: int = 50) -> list[Trip]:
 
 
 def reassign(old_user: str, new_user: str) -> int:
-    """Поездки, собранные до входа в аккаунт, переходят в профиль."""
     moved = 0
     for t in trips_of(old_user, 200):
         t.user_id = new_user
@@ -61,7 +59,6 @@ def load_profile(user_id: str) -> dict:
 
 
 def remember(trip: Trip) -> None:
-    """Запоминаем устойчивые предпочтения, а не конкретную поездку."""
     if trip.user_id == "anonymous":
         return
     p = trip.params

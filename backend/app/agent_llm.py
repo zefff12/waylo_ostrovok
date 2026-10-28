@@ -1,6 +1,4 @@
-"""Агент на Claude (по умолчанию Haiku 5.5, модель задаётся WAYLO_MODEL) с tool calling.
-
-LLM понимает запрос, решает, какие инструменты вызвать, и объясняет результат.
+"""LLM понимает запрос, решает, какие инструменты вызвать, и объясняет результат.
 Бизнес-логика и расчёты — в planner.py; модель получает их результаты как JSON.
 """
 from __future__ import annotations
@@ -18,8 +16,6 @@ from .schemas import Trip
 log = logging.getLogger("waylo.agent")
 
 MODEL = os.getenv("WAYLO_MODEL", "claude-haiku-5-5")
-# Server-side fallback при отказе есть у Opus 5.5 / Sonnet 5.5 / Fable 5.1; у Haiku 5.5 его нет —
-# параметр fallbacks там не передаём, отказ обрабатываем в коде.
 SUPPORTS_FALLBACK = not MODEL.startswith("claude-haiku")
 EFFORT = os.getenv("WAYLO_EFFORT", "medium")
 MAX_STEPS = 12
@@ -30,7 +26,6 @@ def available() -> bool:
 
 
 def handle(trip: Trip, text: str, messages: list, profile: dict | None = None) -> str:
-    """Один ход диалога. messages — история (только добавляем, не редактируем)."""
     client = anthropic.Anthropic()
     content = text
     if profile and not messages:
@@ -38,7 +33,7 @@ def handle(trip: Trip, text: str, messages: list, profile: dict | None = None) -
     if trip.days:
         content += f"\n\n[Состояние: поездка уже собрана, город {trip.params.destination}, {len(trip.days)} дн. Меняй точечно.]"
     early, note = begin_turn(trip, text)
-    if early:  # уточнение идёт без модели: вопросы задаёт планировщик
+    if early:
         messages += [{"role": "user", "content": content}, {"role": "assistant", "content": early}]
         return early
     if note:
@@ -64,7 +59,7 @@ def handle(trip: Trip, text: str, messages: list, profile: dict | None = None) -
                 results.append({"type": "tool_result", "tool_use_id": tu.id,
                                 "content": json.dumps(out, ensure_ascii=False, default=str)[:20000],
                                 **({"is_error": True} if "error" in out else {})})
-            except Exception as e:  # инструмент упал — модель должна узнать об этом, а не получить тишину
+            except Exception as e:
                 log.exception("tool %s failed", tu.name)
                 planner.log_tool(trip, tu.name, f"ошибка: {e}", ok=False)
                 results.append({"type": "tool_result", "tool_use_id": tu.id, "content": f"Ошибка инструмента: {e}", "is_error": True})

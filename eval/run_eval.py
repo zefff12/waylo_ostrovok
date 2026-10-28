@@ -1,12 +1,3 @@
-"""Замер качества агента на наборе тестовых запросов.
-
-Запуск из корня проекта:
-    uv run --project backend python eval/run_eval.py            # офлайн-агент
-    uv run --project backend python eval/run_eval.py --llm      # нейросеть из WAYLO_LLM (GigaChat или Claude)
-
-Метрики: доля сценариев, доведённых до корзины; число уточнений; время до первой рекомендации;
-ошибки состыковок; выполнение ожиданий конкретного кейса (питомцы, бюджет, дождь…).
-"""
 from __future__ import annotations
 
 import argparse
@@ -21,11 +12,10 @@ sys.path.insert(0, str(ROOT / "backend"))
 os.environ.setdefault("WAYLO_DB", str(Path(tempfile.gettempdir()) / "waylo_eval.sqlite3"))
 Path(os.environ["WAYLO_DB"]).unlink(missing_ok=True)
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-from app.main import PROVIDERS, app, provider  # noqa: E402
+from app.main import PROVIDERS, app, provider
 
-# (название, [реплики пользователя], проверка итоговой поездки -> (ok, комментарий))
 CASES = [
     ("СПб на 5 дней, 45к", ["Хочу на пять дней в Санкт-Петербург в ноябре. Бюджет — 45 000 рублей на двоих. Любим красивые улицы, необычные кафе, музеи и атмосферные места для фотографий. Хотим жить недалеко от центра"],
      lambda t: (len(t["days"]) == 5 and t["budget"]["limit"] == 45000, "5 дней и лимит 45 000")),
@@ -95,7 +85,7 @@ CASES = [
      lambda t: (t["budget"]["limit"] is None and not any(c["code"] == "over_budget" for c in t["connections"]), "лимит снят, нет превышения")),
     ("Бюджет соблюдён", ["Петербург с 5 по 8 декабря из Москвы вдвоём, бюджет 45 000"],
      lambda t: (t["budget"]["total"] <= 45000, "итог не выше лимита")),
-    ("Покупка", ["Казань на 3 дня"], None),  # проверяется checkout ниже
+    ("Покупка", ["Казань на 3 дня"], None),
     ("После покупки", ["Петербург на 3 дня"], None),
 ]
 
@@ -117,7 +107,6 @@ def main() -> None:
     label = "офлайн-агент" if prov == "offline" else f"{prov} · {PROVIDERS[prov][0].MODEL}"
     print(f"Агент: {label}")
     c = TestClient(app)
-    # оплата доступна только из профиля — заводим тестовый
     auth = c.post("/api/auth/register", json={"login": f"eval{int(time.time())}@waylo.test", "password": "evalpass123",
                                               "last_name": "Тест", "first_name": "Замер"}).json()
     H = {"Authorization": f"Bearer {auth['token']}"}
@@ -136,8 +125,6 @@ def main() -> None:
                 agents.add(j["chat"][-1].get("agent", "?"))
                 if trip["status"] == "need_info":
                     clar += 1
-                    # агент уточняет даты и город отправления; в однострочных кейсах отвечаем как пользователь,
-                    # которому всё равно, — и проверяем уже собранный план
                     if trip["params"]["destination"] and not trip["days"] and name not in ("Уточняющие вопросы", "Ответ на уточнение", "Переспрашивает до полной картины", "Ответ без «из» и голым числом"):
                         r = c.post("/api/chat", json={"trip_id": trip_id, "user_id": f"eval_{len(rows)}",
                                                       "message": "На ваше усмотрение", "mode": mode})
@@ -160,7 +147,7 @@ def main() -> None:
                 else:
                     completed = True
             ok, note = (check(trip) if check else (bool(completed), "демо-оформление прошло"))
-        except Exception as e:  # кейс упал — это результат, а не повод остановить замер
+        except Exception as e:
             ok, note, completed, error = False, f"ошибка: {e}", False, str(e)
         crit = sum(1 for x in (trip or {}).get("connections", []) if x["level"] == "critical")
         rows.append({"name": name, "ok": ok, "note": note, "completed": completed, "clar": clar,

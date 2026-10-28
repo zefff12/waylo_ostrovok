@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 
-/* Фоновое видео YouTube: встроенный плеер youtube-nocookie без звука и элементов управления, зациклен.
-   Скрипт iframe_api с www.youtube.com не используется — в некоторых сетях этот домен недоступен, а плеер
-   youtube-nocookie и видеопоток работают. Состояние плеера узнаём через его postMessage-протокол.
-   Слой проявляется только когда видео реально играет; до этого и при ошибке под ним остаётся локальное видео.
-   Ограничения: качество выбирает YouTube по размеру плеера и сети, автозапуск возможен только без звука. */
-
 const ORIGIN = "https://www.youtube-nocookie.com";
 const PLAYING = 1;
 const ENDED = 0;
@@ -20,7 +14,6 @@ export function YouTubeLayer({ id, paused, onFail }: { id: string; paused: boole
 
   useEffect(() => {
     let reveal: ReturnType<typeof setTimeout> | undefined;
-    // медленная сеть или блокировка: если за 15 с видео не пошло, остаёмся на локальном фоне
     const giveUp = setTimeout(() => { if (!playing.current) onFail?.(); }, 15000);
     const onMessage = (e: MessageEvent) => {
       if (e.origin !== ORIGIN || e.source !== frame.current?.contentWindow) return;
@@ -32,14 +25,12 @@ export function YouTubeLayer({ id, paused, onFail }: { id: string; paused: boole
       if (msg.event === "onError") { setVisible(false); onFail?.(); }
       if (state === PLAYING && !playing.current) {
         playing.current = true;
-        // первые секунды YouTube показывает название ролика — проявляем слой после него
         reveal = setTimeout(() => setVisible(true), 2800);
       }
       if (state === ENDED) { command("seekTo", [0, true]); command("playVideo"); }
     };
     addEventListener("message", onMessage);
     return () => { removeEventListener("message", onMessage); clearTimeout(giveUp); clearTimeout(reveal); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, onFail]);
 
   useEffect(() => { command(paused ? "pauseVideo" : "playVideo"); }, [paused]);

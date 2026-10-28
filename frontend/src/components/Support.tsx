@@ -9,18 +9,17 @@ export const TOPIC_LABEL: Record<Ticket["topic"], string> = {
 };
 export const STATUS_LABEL: Record<Ticket["status"], string> = { open: "Ждёт ответа", answered: "Есть ответ", closed: "Закрыто" };
 
-const STORE = "waylo_support_v1";  // копия своих обращений: сервер на бесплатном Render может её потерять
+const STORE = "waylo_support_v1";
 
 function loadLocal(): Ticket[] {
   try { return JSON.parse(localStorage.getItem(STORE) ?? "[]"); } catch { return []; }
 }
 function saveLocal(ts: Ticket[]) {
-  try { localStorage.setItem(STORE, JSON.stringify(ts.slice(0, 50))); } catch { /* приватный режим */ }
+  try { localStorage.setItem(STORE, JSON.stringify(ts.slice(0, 50))); } catch {}
 }
 
 const fmt = (iso: string) => new Date(iso).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-/** Окно поддержки: новое обращение и переписка по своим обращениям. */
 export function SupportSheet({ user, tripId, onClose }: { user: string; tripId: string | null; onClose: () => void }) {
   const [tickets, setTickets] = useState<Ticket[]>(loadLocal);
   const [view, setView] = useState<"new" | "list" | string>(() => (loadLocal().length ? "list" : "new"));
@@ -161,7 +160,6 @@ function Thread({ ticket, user, onBack, onUpdate }: { ticket: Ticket; user: stri
   );
 }
 
-/** Страница сотрудника поддержки: /support-admin, вход по ключу SUPPORT_ADMIN_TOKEN. */
 export function SupportAdmin() {
   const [token, setToken] = useState(() => { try { return sessionStorage.getItem("waylo_admin") ?? ""; } catch { return ""; } });
   const [tickets, setTickets] = useState<Ticket[] | null>(null);
@@ -174,10 +172,10 @@ export function SupportAdmin() {
     try {
       const r = await api.supportAdmin(t);
       setTickets(r.tickets);
-      try { sessionStorage.setItem("waylo_admin", t); } catch { /* приватный режим */ }
+      try { sessionStorage.setItem("waylo_admin", t); } catch {}
     } catch (e) { setTickets(null); setError((e as Error).message); }
   };
-  useEffect(() => { if (token) load(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (token) load(); }, []);
 
   const act = async (fn: () => Promise<Ticket>) => {
     try { const t = await fn(); setTickets((ts) => ts?.map((x) => (x.id === t.id ? t : x)) ?? null); }

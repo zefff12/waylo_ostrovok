@@ -1,14 +1,3 @@
-"""Выгрузка реальных отелей из OpenStreetMap (Overpass API) в app/hotels_osm.json.
-
-Публичный Overpass часто отвечает медленно или 502, поэтому отели выгружаются заранее, а не во время
-планирования. Запуск из корня проекта:
-    uv run --project backend python backend/scripts/fetch_hotels.py            # все города
-    uv run --project backend python backend/scripts/fetch_hotels.py antalya    # докачать отдельные
-    uv run --project backend python backend/scripts/fetch_hotels.py --geocode  # адреса через Яндекс Геокодер
-
-Адреса: если в OSM у отеля нет улицы и дома, --geocode дописывает их по координатам через Яндекс Геокодер
-(нужен YANDEX_JS_API_KEY в .env; ~170 запросов при лимите 1000 в сутки).
-"""
 from __future__ import annotations
 
 import json
@@ -19,9 +8,9 @@ from pathlib import Path
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from app import integrations  # noqa: E402
-from app.data import CITIES  # noqa: E402
-from app.geo import km  # noqa: E402
+from app import integrations
+from app.data import CITIES
+from app.geo import km
 
 MIRRORS = [
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
@@ -104,7 +93,6 @@ def main() -> None:
             if h["name"].lower() not in seen:
                 seen.add(h["name"].lower())
                 uniq.append(h)
-        # сначала заполненные карточки (сайт, звёзды, адрес), затем ближе к центру
         uniq.sort(key=lambda h: (-(bool(h["website"]) + bool(h["stars"]) + bool(h["address"])), h["center_km"]))
         if not uniq and out["cities"].get(c.id):
             print("пусто, оставляем прошлую выгрузку")

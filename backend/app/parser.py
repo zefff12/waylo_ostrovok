@@ -1,4 +1,3 @@
-"""Разбор русского текста правилами — для офлайн-агента (без LLM) и как подсказка для Claude."""
 from __future__ import annotations
 
 import re
@@ -34,7 +33,6 @@ def _num(tok: str) -> int | None:
 
 
 def parse_request(text: str) -> dict:
-    """Параметры поездки из свободного текста. Возвращает только то, что удалось найти."""
     low = text.lower().replace("ё", "е")
     out: dict = {}
 
@@ -47,7 +45,6 @@ def parse_request(text: str) -> dict:
     if c := find_city(low_wo_origin):
         out["destination"] = c.id
 
-    # длительность
     if m := re.search(r"(\d+|[а-я]+)[\s-]*(дн|дня|дней|день|ноч)", low):
         n = _num(m.group(1))
         if n:
@@ -59,7 +56,6 @@ def parse_request(text: str) -> dict:
     if re.search(r"на выходные|выходных", low):
         out["nights"] = 2
 
-    # месяц и даты
     for i, stem in enumerate(MONTH_STEMS):
         if re.search(rf"\b{stem}\w*", low) and not (i == 4 and not re.search(r"\bма[йяе]\b|\bмая\b", low)):
             out["month"] = i + 1
@@ -68,7 +64,7 @@ def parse_request(text: str) -> dict:
                 year = today.year + ((i + 1) < today.month)
                 try:
                     d1, d2 = int(m.group(1)), int(m.group(2) or 0)
-                    if m.group(2) and d2 < d1:  # «с 30 по 4 ноября» — начало в предыдущем месяце
+                    if m.group(2) and d2 < d1:
                         e = date(year, i + 1, d2)
                         pm = 12 if i == 0 else i
                         s = date(year - (i == 0), pm, d1)
@@ -81,7 +77,6 @@ def parse_request(text: str) -> dict:
                 except ValueError:
                     pass
             break
-    # диапазон через границу месяца: «с 30 октября по 4 ноября»
     month_rx = "|".join(f"({s})" for s in MONTH_STEMS)
     if m := re.search(rf"(\d{{1,2}})\s+(?:{month_rx})\w*\s*(?:по|до|[-–—])\s*(\d{{1,2}})\s+(?:{month_rx})", low):
         g = m.groups()
@@ -96,7 +91,6 @@ def parse_request(text: str) -> dict:
         except ValueError:
             pass
 
-    # бюджет
     m = re.search(r"(\d[\d\s]*[.,]?\d*)\s*(тыс\w*|т\.р|к\b|000|руб\w*|₽|р\b)", low)
     if m and re.search(r"бюджет|до\s+\d|за\s+\d|руб|₽|тыс|\d\s*к\b", low):
         raw = m.group(1).replace(" ", "").replace(",", ".")
@@ -111,7 +105,6 @@ def parse_request(text: str) -> dict:
         except ValueError:
             pass
 
-    # кто едет
     adults = None
     if re.search(r"на двоих|вдво[её]м|с девушкой|с парнем|с женой|с мужем|с подругой|с другом|\bпар[аойу]\b", low):
         adults = 2
@@ -128,7 +121,7 @@ def parse_request(text: str) -> dict:
     if m := re.search(r"с (\d+|двумя|тремя) детьми|с детьми", low):
         out["children"] = {"двумя": 2, "тремя": 3}.get(m.group(1) or "", int(m.group(1)) if (m.group(1) or "").isdigit() else 2)
         adults = adults or 2
-    if m := re.search(r"(\d+|[а-я]+)\s+(реб[её]н\w*|дет[еи]й)\b", low):  # «1 ребёнок», «двое детей»
+    if m := re.search(r"(\d+|[а-я]+)\s+(реб[её]н\w*|дет[еи]й)\b", low):
         if (n := _num(m.group(1))) is not None:
             out["children"] = n
             adults = adults or 2
@@ -174,8 +167,6 @@ def parse_request(text: str) -> dict:
 
 
 def parse_answer(text: str, trip) -> dict:
-    """Разбор с учётом того, о чём агент спрашивал. Ответ «Нижний Новгород. 60000» на вопросы
-    «откуда поедете?» и «какой бюджет?» — это город отправления и бюджет, а не новое направление."""
     out = parse_request(text)
     p = trip.params
     if not p.destination or trip.days:
@@ -189,7 +180,6 @@ def parse_answer(text: str, trip) -> dict:
             and not wants_new and find_city(low) and CITIES[p.destination].name.lower()[:4] not in low:
         out.pop("destination")
     if "budget_rub" not in out and "budget_rub" not in p.known:
-        # голое число в ответе на вопрос о бюджете: «60000», «60 000», «100к»
         for m in re.finditer(r"(?<![\d.:/])(\d{1,3}(?:[  ]?\d{3})+|\d{4,7})(?![\d.:/])", text):
             val = int(re.sub(r"\D", "", m.group(1)))
             if 3000 <= val <= 5_000_000:
@@ -221,7 +211,6 @@ def day_ref(text: str) -> int | None:
 
 
 def parse_command(text: str) -> list[tuple[str, dict]]:
-    """Команды изменения готового плана. Порядок важен: сначала глобальные, потом по дням."""
     low = text.lower().replace("ё", "е")
     cmds: list[tuple[str, dict]] = []
     day = day_ref(text)

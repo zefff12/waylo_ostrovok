@@ -1,10 +1,3 @@
-"""Демо-данные: тестовый профиль с двумя сохранёнными гостями.
-
-    docker compose exec app bash -lc "backend/.venv/bin/python backend/scripts/seed.py"
-
-Повторный запуск ничего не ломает: если профиль уже есть, скрипт только сообщает об этом.
-Таблицы создаются автоматически при первом подключении к базе.
-"""
 from __future__ import annotations
 
 import sys
@@ -12,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app import accounts  # noqa: E402
+from app import accounts
 
 LOGIN, PASSWORD = "demo@waylo.ru", "waylo2026"
 

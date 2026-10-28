@@ -1,18 +1,17 @@
-"""Структуры состояния поездки. Всё, что показывает frontend, лежит здесь."""
+"""Структуры состояния поездки."""
 from __future__ import annotations
 
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-# Тип значения цены или факта: подтверждено внешним API, расчётная оценка или синтетика.
 ValueKind = Literal["confirmed", "estimate", "demo"]
 
 
 class TripParams(BaseModel):
     origin: str = "moscow"
     destination: str | None = None
-    start_date: str | None = None  # ISO, дата прибытия
+    start_date: str | None = None
     nights: int | None = None
     adults: int = 2
     children: int = 0
@@ -21,14 +20,14 @@ class TripParams(BaseModel):
     interests: list[str] = Field(default_factory=list)
     walking: Literal["normal", "low"] = "normal"
     month: int | None = None
-    wishes: list[str] = Field(default_factory=list)  # sea, warm, cheap, short_trip, center
+    wishes: list[str] = Field(default_factory=list)
     max_travel_hours: float | None = None
     priority: Literal["balanced", "price", "location", "cancellation"] = "balanced"
     transport_pref: Literal["any", "train", "plane"] = "any"
     assumptions: list[str] = Field(default_factory=list)
-    known: list[str] = Field(default_factory=list)  # что пользователь назвал сам, а не взято по умолчанию
-    clarified: bool = False  # пользователь ответил «на ваше усмотрение» — больше не переспрашиваем
-    asked: int = 0  # сколько раз агент уже задавал уточняющие вопросы
+    known: list[str] = Field(default_factory=list)
+    clarified: bool = False
+    asked: int = 0
 
     @property
     def travelers(self) -> int:
@@ -48,7 +47,7 @@ class DestinationOption(BaseModel):
     travel_hours: float
     travel_mode: str
     est_total_rub: int
-    climate: dict | None = None  # {tmax, tmin, rainy_days, source, kind}
+    climate: dict | None = None
     explanation: Explanation
     score: float
 
@@ -56,7 +55,7 @@ class DestinationOption(BaseModel):
 class Leg(BaseModel):
     from_name: str
     to_name: str
-    depart: str  # ISO datetime
+    depart: str
     arrive: str
     duration_min: int
     carrier: str
@@ -104,7 +103,7 @@ class Hotel(BaseModel):
     source: str = "Демо-отель Waylo (вымышленный, цены синтетические)"
     website: str | None = None
     osm_url: str | None = None
-    facts: dict[str, ValueKind] = Field(default_factory=dict)  # тип данных по полям: name, price, cancellation…
+    facts: dict[str, ValueKind] = Field(default_factory=dict)
     explanation: Explanation = Field(default_factory=Explanation)
     score: float = 0
 
@@ -118,7 +117,7 @@ class Place(BaseModel):
     indoor: bool
     visit_min: int
     ticket_rub: int
-    closed_weekdays: list[int] = Field(default_factory=list)  # 0 = понедельник
+    closed_weekdays: list[int] = Field(default_factory=list)
     hours_status: Literal["unknown", "unverified", "confirmed"] = "unverified"
     description: str = ""
     source: str = "Демо-набор Waylo (координаты приблизительные)"
@@ -126,7 +125,7 @@ class Place(BaseModel):
 
 class Stop(BaseModel):
     place: Place
-    arrive: str  # HH:MM
+    arrive: str
     depart: str
     leg_mode: Literal["start", "walk", "transit"]
     leg_km: float
@@ -208,10 +207,9 @@ class ExtraOffer(BaseModel):
 
 
 class Guest(BaseModel):
-    """Гость в заказе. Номер документа приходит уже замаскированным: полный номер остаётся в браузере."""
     full_name: str = Field(min_length=5, max_length=120)
     birth_date: str
-    document: str = Field(max_length=60)  # «Паспорт РФ •••• 7890»
+    document: str = Field(max_length=60)
     child: bool = False
 
 
@@ -221,11 +219,10 @@ class Order(BaseModel):
     total: int
     lines: list[str]
     status: str = "DEMO — оплата не производилась, бронирований не создано"
-    payment: str | None = None  # «Visa •••• 4242» — номер карты на сервер не передаётся
+    payment: str | None = None
     guests: list[Guest] = Field(default_factory=list)
     post_purchase: list[str] = Field(default_factory=list)
     offers: list[ExtraOffer] = Field(default_factory=list)
-
 
 
 class Trip(BaseModel):
@@ -246,7 +243,6 @@ class Trip(BaseModel):
     tool_log: list[ToolEvent] = Field(default_factory=list)
     order: Order | None = None
     data_notes: list[str] = Field(default_factory=list)
-    # бюджет не достижим даже в самом дешёвом варианте: план не показываем, показываем «ничего не найдено»
     budget_gap: dict | None = None
 
     def transport(self) -> TransportOption | None:

@@ -1,6 +1,5 @@
 import { Fragment, type ReactNode } from "react";
 
-/** Мини-рендер ответов агента: **жирный**, _курсив_, списки «• / - / 1.». Без HTML — безопасно. */
 function inline(text: string): ReactNode[] {
   const parts = text.split(/(\*\*[^*]+\*\*|_[^_]+_)/g);
   return parts.map((p, i) => {
@@ -10,9 +9,8 @@ function inline(text: string): ReactNode[] {
   });
 }
 
-// старые сообщения в истории могли содержать эмодзи — в интерфейсе их не показываем
 const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{23E9}-\u{23FA}\u{FE0F}\u{200D}\u{20E3}]/gu;
-const KEYCAP = /([0-9#*])\u{FE0F}?\u{20E3}/gu;  // «1️⃣» → «1. »
+const KEYCAP = /([0-9#*])\u{FE0F}?\u{20E3}/gu;
 
 export function Markdown({ text }: { text: string }) {
   const lines = text.replace(KEYCAP, "$1. ").replace(EMOJI, "").split("\n");

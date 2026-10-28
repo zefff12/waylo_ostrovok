@@ -26,9 +26,8 @@ type MapProps = {
   days: DayPlan[]; hotel: Hotel | null; activeDay: number | null; onSelectStop?: (day: number, idx: number) => void;
 };
 
-let yandexFailed = false;  // не ждём таймаут повторно при каждом открытии вкладки
+let yandexFailed = false;
 
-/** Сразу OpenStreetMap; на карту Яндекса переключаемся, только когда она действительно загрузилась. */
 export function MapView(props: MapProps) {
   const [engine, setEngine] = useState<"yandex" | "osm">(window.ymaps3 && !yandexFailed ? "yandex" : "osm");
   useEffect(() => {
@@ -55,7 +54,6 @@ function OsmMap({ days, hotel, activeDay, onSelectStop }: MapProps) {
     m.on("load", () => { ready.current = true; draw(); });
     map.current = m;
     return () => { m.remove(); map.current = null; ready.current = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => { draw(); });
@@ -66,7 +64,7 @@ function OsmMap({ days, hotel, activeDay, onSelectStop }: MapProps) {
     const m = map.current;
     if (!m || !ready.current) return;
     const sig = JSON.stringify([activeDay, hotel?.id, days.map((d) => d.stops.map((s) => s.place.id + s.arrive))]);
-    if (sig === lastSig.current) return; // не сбрасываем масштаб, если план не менялся
+    if (sig === lastSig.current) return;
     lastSig.current = sig;
     markers.current.forEach((mk) => mk.remove());
     markers.current = [];

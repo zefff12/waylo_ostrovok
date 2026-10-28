@@ -50,8 +50,6 @@ function userId(): string {
   } catch { return "anonymous"; }
 }
 
-// Память между заходами: последняя открытая поездка, переписка и вкладка хранятся в браузере.
-// Сервер на бесплатном Render теряет базу при перезапуске — тогда поездка восстанавливается из этой копии.
 const SESSION = "waylo_session_v1";
 type Saved = { trip: Trip | null; chat: ChatMsg[]; tab: Tab; mode: "auto" | "offline" };
 
@@ -81,36 +79,34 @@ export default function App() {
   const [mode, setMode] = useState<"auto" | "offline">(saved?.mode ?? "auto");
   const [device] = useState(userId);
   const [auth, setAuth] = useState<Auth | null>(loadAuth);
-  const user = auth?.account.id ?? device;  // после входа поездки и обращения привязываются к профилю
+  const user = auth?.account.id ?? device;
   const [profile, setProfile] = useState<{ reason?: string } | null>(null);
   const [savedGuests, setSavedGuests] = useState<SavedGuest[]>([]);
   const [lastTrip, setLastTrip] = useState<string | null>(null);
   const [paused, setPaused] = useState(readPaused);
   const [chatOpen, setChatOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
-  // ?intro — показать заставку и онбординг заново (удобно на презентации)
   const [intro, setIntro] = useState<"splash" | "onboarding" | null>(
     (introSeen() || saved?.trip) && !new URLSearchParams(location.search).has("intro") ? null : "splash");
 
   useEffect(() => {
     api.health().then(setHealth).catch(() => setError("Сервер Waylo недоступен. Запустите: uv run --project backend uvicorn app.main:app --app-dir backend --port 8000"));
     api.latest(user).then((r) => setLastTrip(r.trip_id)).catch(() => undefined);
-    // вернулись по ссылке: сверяем сохранённую поездку с сервером, а если он её забыл — отдаём копию
     if (saved?.trip) {
       const t = saved.trip;
       api.trip(t.id).then(apply).catch(() => api.restore(t, saved.chat).then(apply).catch(() => undefined));
     }
-  }, [user]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user]);
 
   useEffect(() => {
     try {
       if (trip || chat.length) localStorage.setItem(SESSION, JSON.stringify({ trip, chat: chat.slice(-200), tab, mode }));
       else localStorage.removeItem(SESSION);
-    } catch { /* переполнено или приватный режим — работаем без памяти */ }
+    } catch {}
   }, [trip, chat, tab, mode]);
 
   const togglePause = () => setPaused((p) => {
-    try { localStorage.setItem("waylo_video_paused", p ? "0" : "1"); } catch { /* приватный режим */ }
+    try { localStorage.setItem("waylo_video_paused", p ? "0" : "1"); } catch {}
     return !p;
   });
 
@@ -120,17 +116,15 @@ export default function App() {
     setBusy(true); setError(null);
     try { apply(await fn()); } catch (e) {
       setError((e as Error).message);
-      // ответ мог не дойти, хотя сервер всё сделал: подтягиваем актуальное состояние поездки
       if (trip?.id) api.trip(trip.id).then(apply).catch(() => undefined);
     } finally { setBusy(false); }
   }
 
-  // вернулись на вкладку — сверяем поездку с сервером, чтобы не показывать устаревший план
   useEffect(() => {
     const onShow = () => { if (document.visibilityState === "visible" && trip?.id && !busy) api.trip(trip.id).then(apply).catch(() => undefined); };
     document.addEventListener("visibilitychange", onShow);
     return () => document.removeEventListener("visibilitychange", onShow);
-  }, [trip?.id, busy]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [trip?.id, busy]);
 
   const send = (text: string) => {
     setChat((c) => [...c, { role: "user", text, at: new Date().toTimeString().slice(0, 5) }]);
@@ -145,21 +139,20 @@ export default function App() {
   const onLogout = () => { saveAuth(null); setAuth(null); setSavedGuests([]); };
   const openTrip = (id: string) => { setProfile(null); setTab("trip"); run(() => api.trip(id)); };
 
-  // сохранённые гости нужны при оформлении — подтягиваем их из профиля
   useEffect(() => {
     if (auth && tab === "checkout") api.me().then((m) => setSavedGuests(m.guests)).catch(() => undefined);
   }, [auth, tab]);
 
   const checkout = async (tripId: string, guests: GuestOut[], card: string, toSave: (GuestDraft & { doc_kind: string })[]) => {
     await Promise.all(toSave.map((g) => api.saveGuest({ ...g, last: g.last.trim(), first: g.first.trim(), middle: g.middle.trim() })
-      .catch(() => undefined)));  // гость не сохранился — оплате это не мешает
+      .catch(() => undefined)));
     return api.checkout(tripId, guests, card);
   };
   const closeSupport = useCallback(() => setSupportOpen(false), []);
   const cityNames = useMemo(() => Object.fromEntries((health?.cities ?? []).map((c) => [c.id, c.name])), [health]);
   const home = !trip && !chat.length;
   const scene = sceneFor(trip, health);
-  const tripReady = Boolean(trip?.days.length) && !trip?.budget_gap;  // нет варианта в бюджет — нечего гулять и оплачивать
+  const tripReady = Boolean(trip?.days.length) && !trip?.budget_gap;
 
   return (
     <>
@@ -236,7 +229,6 @@ export default function App() {
 function TripSummary({ trip, city, busy }: { trip: Trip | null; city: string; busy: boolean }) {
   if (!trip?.params.destination) return <div className="tsum"><b>{busy ? "Агент разбирает запрос…" : "Новая поездка"}</b></div>;
   const p = trip.params;
-  // пока агент уточняет даты, показывать даты по умолчанию нельзя — их ещё никто не выбрал
   const start = p.start_date && trip.days.length ? new Date(p.start_date + "T00:00") : null;
   const end = start ? new Date(start.getTime() + (p.nights ?? 0) * 864e5) : null;
   const fmt = (d: Date) => d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
@@ -249,7 +241,6 @@ function TripSummary({ trip, city, busy }: { trip: Trip | null; city: string; bu
   );
 }
 
-/** Агенту не хватает данных: вопрос и поле ответа прямо в основной панели, а не только в чате. */
 function Clarify({ question, busy, onSend }: { question: string; busy: boolean; onSend: (t: string) => void }) {
   const [answer, setAnswer] = useState("");
   const submit = () => { if (answer.trim() && !busy) { onSend(answer.trim()); setAnswer(""); } };
@@ -303,8 +294,8 @@ function Home({ health, onStart, paused, togglePause, error, onHelp, hidden, onS
   const [adults, setAdults] = useState(draft.adults ?? 2);
   const [kids, setKids] = useState(draft.kids ?? 0);
   const [touched, setTouched] = useState(draft.touched ?? false);
-  useEffect(() => {  // черновик запроса переживает перезагрузку страницы
-    try { localStorage.setItem(DRAFT, JSON.stringify({ prompt, city, from, to, adults, kids, touched })); } catch { /* приватный режим */ }
+  useEffect(() => {
+    try { localStorage.setItem(DRAFT, JSON.stringify({ prompt, city, from, to, adults, kids, touched })); } catch {}
   }, [prompt, city, from, to, adults, kids, touched]);
   const area = useRef<HTMLTextAreaElement>(null);
   const cities = health?.cities ?? [];
@@ -312,7 +303,6 @@ function Home({ health, onStart, paused, togglePause, error, onHelp, hidden, onS
   const day = (iso: string) => new Date(iso + "T00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
   const nights = from && to ? Math.round((+new Date(to) - +new Date(from)) / 864e5) : 0;
 
-  // поля превращаются в текст, который понимает агент: «с 12 декабря, 3 ночи», «Взрослых: 2, детей: 1»
   const compose = () => {
     const parts = [prompt.trim()];
     if (city && !prompt.toLowerCase().includes(cityName(city).toLowerCase().slice(0, 5))) parts.push(`Направление: ${cityName(city)}.`);

@@ -2,10 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { rub } from "../api";
 import { Icon } from "./Icons";
 
-/**
- * Демо-оплата картой. Выглядит и проверяет поля как настоящая форма, но номер карты
- * не покидает браузер: наружу уходит только «Visa •••• 4242». Деньги не списываются.
- */
 const TEST_CARD = "4242 4242 4242 4242";
 
 function brand(digits: string): string {
@@ -28,7 +24,7 @@ function luhn(digits: string): boolean {
 function expiryOk(v: string): boolean {
   const m = v.match(/^(\d{2})\/(\d{2})$/);
   if (!m || +m[1] < 1 || +m[1] > 12) return false;
-  const end = new Date(2000 + +m[2], +m[1], 1);  // карта действует до конца месяца
+  const end = new Date(2000 + +m[2], +m[1], 1);
   return end > new Date();
 }
 
@@ -61,7 +57,6 @@ export function PaymentForm({ amount, busy, label, onPaid }: {
     setErrors(e);
     if (Object.keys(e).length) return;
     setStage("processing");
-    // имитация подтверждения банком; номер дальше этой формы не передаётся
     timer.current = window.setTimeout(() => { setStage("form"); onPaid(`${kind} •••• ${digits.slice(-4)}`); }, 1400);
   };
 

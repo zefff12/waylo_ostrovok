@@ -11,7 +11,6 @@ const STATUS: Record<string, string> = {
 
 const fmtDate = (iso: string) => new Date(iso + (iso.length === 10 ? "T00:00" : "")).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
 
-/** Окно профиля: вход и регистрация, а после входа — поездки, оплаты и сохранённые гости. */
 export function ProfileSheet({ auth, device, reason, onAuth, onLogout, onOpenTrip, onClose }: {
   auth: Auth | null; device: string; reason?: string;
   onAuth: (a: Auth) => void; onLogout: () => void; onOpenTrip: (id: string) => void; onClose: () => void;
@@ -97,9 +96,9 @@ function Cabinet({ auth, onLogout, onOpenTrip }: { auth: Auth; onLogout: () => v
   const [error, setError] = useState<string | null>(null);
   const load = () => api.me().then(setMe).catch((e) => {
     setError((e as Error).message);
-    if (/Войдите/.test((e as Error).message)) onLogout();  // сессия истекла
+    if (/Войдите/.test((e as Error).message)) onLogout();
   });
-  useEffect(() => { load(); }, [auth.token]);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [auth.token]);
 
   return (
     <div className="sheet-body">
@@ -151,7 +150,6 @@ const today = () => new Date().toISOString().slice(0, 10);
 function Guests({ guests, onChange }: { guests: SavedGuest[]; onChange: () => void }) {
   const [edit, setEdit] = useState<(typeof EMPTY & { id?: string }) | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // документ по возрасту, как при оформлении: до 14 лет — свидетельство о рождении, с 14 — паспорт РФ
   const kind = docFor(edit?.birth ?? "", today());
 
   const save = async () => {

@@ -1,8 +1,3 @@
-"""Профиль пользователя: регистрация, вход, сессии и сохранённые гости.
-
-Пароль хранится как PBKDF2-SHA256 с солью, сессия — случайный токен, в базе лежит только его хеш.
-Без входа поездку можно собрать, но нельзя оплатить.
-"""
 from __future__ import annotations
 
 import hashlib
@@ -19,20 +14,19 @@ from pydantic import BaseModel, Field
 from .db import connect
 
 ITERATIONS = 200_000
-SESSION_TTL = 60 * 60 * 24 * 30  # 30 дней
-_fails: dict[str, list[float]] = defaultdict(list)  # защита от перебора пароля: попытки входа по логину
+SESSION_TTL = 60 * 60 * 24 * 30
+_fails: dict[str, list[float]] = defaultdict(list)
 
 
 class Account(BaseModel):
     id: str
-    login: str  # e-mail в нижнем регистре или телефон в формате +79991234567
+    login: str
     last_name: str
     first_name: str
     created: float
 
 
 class Guest(BaseModel):
-    """Сохранённый гость. Номер документа хранится полностью — его подставляют при оформлении."""
     id: str = ""
     last: str = Field(min_length=1, max_length=40)
     first: str = Field(min_length=1, max_length=40)
@@ -47,7 +41,6 @@ DOC_RX = {PASSPORT: re.compile(r"^\d{4} \d{6}$"), BIRTH_CERT: re.compile(r"^[IVX
 
 
 def doc_kind_for(birth: str, at: date | None = None) -> str:
-    """Документ по возрасту, как в форме оформления: до 14 лет — свидетельство о рождении, с 14 — паспорт РФ."""
     b, d = date.fromisoformat(birth), at or date.today()
     age = d.year - b.year - ((d.month, d.day) < (b.month, b.day))
     return BIRTH_CERT if age < 14 else PASSPORT
@@ -137,10 +130,9 @@ def guests(account_id: str) -> list[Guest]:
 
 
 def save_guest(account_id: str, g: Guest) -> Guest:
-    """Тот же человек (ФИО + дата рождения) обновляется, а не дублируется."""
     mine = guests(account_id)
     if g.id and g.id not in {x.id for x in mine}:
-        g.id = ""  # чужой или устаревший id: сохраняем как нового гостя, а не поверх чужого
+        g.id = ""
     same = next((x for x in mine if (x.last.lower(), x.first.lower(), x.birth) == (g.last.lower(), g.first.lower(), g.birth)), None)
     g.id = g.id or (same.id if same else "g_" + uuid.uuid4().hex[:10])
     with connect() as c:

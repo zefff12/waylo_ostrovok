@@ -1,4 +1,3 @@
-"""Персональные прогулки: выбор мест по интересам, раскладка по дням и маршрут от отеля."""
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
@@ -23,12 +22,12 @@ def walk_limit_km(day: DayPlan) -> float:
 def place_score(pl: Place, interests: list[str]) -> float:
     s = 1.0 + sum(2.0 for c in pl.cats if c in interests)
     if not interests and {"architecture", "history", "view"} & set(pl.cats):
-        s += 1.0  # без интересов — классика города
+        s += 1.0
     return s
 
 
 def _leg(trip: Trip, day: DayPlan, a: tuple[float, float], b: Place) -> tuple[str, float, int, int]:
-    city = CITIES[trip.params.destination]  # type: ignore[index]
+    city = CITIES[trip.params.destination]
     d = km(a[0], a[1], b.lat, b.lon)
     if d <= walk_limit_km(day):
         return "walk", round(d, 2), walk_minutes(d), 0
@@ -42,11 +41,10 @@ def _usable(pl: Place, day: DayPlan, weekday: int) -> bool:
 
 
 def day_window(trip: Trip, day_no: int, n_days: int) -> tuple[str, str, list[str]]:
-    """Окно прогулки с учётом прибытия, трансфера и отъезда."""
     notes: list[str] = []
     start, end = DAY_START, DAY_END
     t, h = trip.transport(), trip.hotel()
-    city = CITIES[trip.params.destination]  # type: ignore[index]
+    city = CITIES[trip.params.destination]
     if t and h:
         hub = city.station if t.mode == "train" and city.station else city.airport
         transfer = round(8 + km(hub.lat, hub.lon, h.lat, h.lon) * 1.3 / 30 * 60)
@@ -66,10 +64,9 @@ def day_window(trip: Trip, day_no: int, n_days: int) -> tuple[str, str, list[str
 
 
 def build_days(trip: Trip) -> None:
-    """Полная раскладка: какие места в какой день (используется при первичной сборке)."""
     p = trip.params
     n_days = (p.nights or 0) + 1
-    start_date = date.fromisoformat(p.start_date)  # type: ignore[arg-type]
+    start_date = date.fromisoformat(p.start_date)
     old = {d.day: d for d in trip.days}
     used: set[str] = set()
     days: list[DayPlan] = []
@@ -88,16 +85,15 @@ def build_days(trip: Trip) -> None:
 
 
 def _select(trip: Trip, day: DayPlan, used: set[str], pinned: list[str] | None = None) -> list[str]:
-    """Жадный выбор: ценность места / (дорога + посещение), обед в кафе около 13:00."""
     weekday = date.fromisoformat(day.date).weekday()
     h = trip.hotel()
-    pos = (h.lat, h.lon) if h else (CITIES[trip.params.destination].lat, CITIES[trip.params.destination].lon)  # type: ignore[index]
+    pos = (h.lat, h.lon) if h else (CITIES[trip.params.destination].lat, CITIES[trip.params.destination].lon)
     t = hm(day.start_time)
     end = hm(day.end_limit)
     if end - t < 60:
         return []
     chosen: list[str] = list(pinned or [])
-    for pid in chosen:  # закреплённые места уже занимают время
+    for pid in chosen:
         if pl := trip.place(pid):
             t += _leg(trip, day, pos, pl)[2] + pl.visit_min
             pos = (pl.lat, pl.lon)
@@ -114,7 +110,7 @@ def _select(trip: Trip, day: DayPlan, used: set[str], pinned: list[str] | None =
             if lunch and not is_cafe:
                 continue
             if not lunch and is_cafe and pl.cats == ["cafe"]:
-                continue  # чистые кафе — только в обед
+                continue
             mode, dist, leg_min, _ = _leg(trip, day, pos, pl)
             if t + leg_min + pl.visit_min > end:
                 continue
@@ -126,7 +122,7 @@ def _select(trip: Trip, day: DayPlan, used: set[str], pinned: list[str] | None =
                 best, best_val = pl, val
         if best is None:
             if lunch:
-                has_cafe = True  # кафе рядом нет — идём дальше без обеда в плане
+                has_cafe = True
                 continue
             break
         _, _, leg_min, _ = _leg(trip, day, pos, best)
@@ -139,7 +135,6 @@ def _select(trip: Trip, day: DayPlan, used: set[str], pinned: list[str] | None =
 
 
 def optimize_order(trip: Trip, day: DayPlan) -> None:
-    """Ближайший сосед от отеля; кафе — на позицию, где время ближе к обеду."""
     h = trip.hotel()
     if not h or not day.place_ids:
         return
@@ -168,9 +163,8 @@ def optimize_order(trip: Trip, day: DayPlan) -> None:
 
 
 def route_day(trip: Trip, day: DayPlan) -> None:
-    """Пересчитать время, переходы и стоимость дня по текущему порядку мест."""
     h = trip.hotel()
-    city = CITIES[trip.params.destination]  # type: ignore[index]
+    city = CITIES[trip.params.destination]
     pos = (h.lat, h.lon) if h else (city.lat, city.lon)
     weekday = date.fromisoformat(day.date).weekday()
     t = hm(day.start_time)
@@ -223,7 +217,6 @@ def unused_places(trip: Trip) -> list[Place]:
 
 
 def reselect_day(trip: Trip, day: DayPlan, keep: list[str] | None = None) -> None:
-    """Пересобрать один день, не трогая места других дней."""
     used = {pid for d in trip.days if d.day != day.day for pid in d.place_ids}
     day.place_ids = _select(trip, day, used, pinned=keep)
     optimize_order(trip, day)

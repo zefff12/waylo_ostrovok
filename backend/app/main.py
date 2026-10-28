@@ -1,4 +1,3 @@
-"""HTTP API Waylo."""
 from __future__ import annotations
 
 import logging
@@ -18,15 +17,15 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 load_dotenv()
 
-from fastapi import FastAPI, Header, HTTPException  # noqa: E402
-from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.responses import FileResponse  # noqa: E402
-from fastapi.staticfiles import StaticFiles  # noqa: E402
-from pydantic import BaseModel, Field  # noqa: E402
+from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
-from . import accounts, agent_gigachat, agent_llm, agent_offline, connections, db, integrations, planner, store, support  # noqa: E402
-from .data import CITIES  # noqa: E402
-from .schemas import Guest, Order, Trip  # noqa: E402
+from . import accounts, agent_gigachat, agent_llm, agent_offline, connections, db, integrations, planner, store, support
+from .data import CITIES
+from .schemas import Guest, Order, Trip
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("waylo")
@@ -39,7 +38,7 @@ class ChatIn(BaseModel):
     trip_id: str | None = None
     user_id: str = "anonymous"
     message: str
-    mode: str = "auto"  # auto | llm | offline
+    mode: str = "auto"
 
 
 class ChatOut(BaseModel):
@@ -54,7 +53,6 @@ class SelectIn(BaseModel):
     option_id: str
 
 
-# Номер карты на сервер не приходит: интерфейс присылает только платёжную систему и последние 4 цифры.
 CARD = r"^(Visa|Mastercard|МИР|Карта) •••• \d{4}$"
 
 
@@ -69,7 +67,7 @@ class RestoreIn(BaseModel):
 
 
 class ExtraIn(BaseModel):
-    kind: str  # early_checkin | transfer
+    kind: str
     card: str | None = Field(default=None, pattern=CARD)
 
 
@@ -80,7 +78,6 @@ def _get(trip_id: str) -> tuple[Trip, list, list]:
     return got
 
 
-# Провайдер LLM: WAYLO_LLM = auto | claude | gigachat | offline. auto — первый, для которого задан ключ.
 PROVIDERS = {
     "claude": (agent_llm, (anthropic.APIConnectionError, anthropic.APIStatusError)),
     "gigachat": (agent_gigachat, (agent_gigachat.GigaChatError,)),
@@ -98,7 +95,6 @@ def provider() -> str:
 
 
 def _histories(messages) -> dict:
-    """История диалога хранится отдельно для каждого провайдера: форматы сообщений у них разные."""
     if isinstance(messages, list):
         return {"claude": messages} if messages else {}
     return messages or {}
@@ -108,20 +104,17 @@ _EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿⬀-⯿⏩-⏺️‍⃣]")
 
 
 def youtube_id(url: str) -> str | None:
-    """ID ролика из youtu.be/…, youtube.com/watch?v=…, /embed/…, /shorts/… или сам ID."""
     m = re.search(r"(?:youtu\.be/|[?&]v=|/embed/|/shorts/|/live/)([\w-]{11})", url or "") or re.fullmatch(r"([\w-]{11})", (url or "").strip())
     return m.group(1) if m else None
 
 
 def strip_emoji(text: str) -> str:
-    """Интерфейс без эмодзи: LLM иногда добавляет их вопреки инструкции."""
-    out = re.sub("([0-9#*])️?⃣", r"\1. ", text)  # «1️⃣» → «1. »
+    out = re.sub("([0-9#*])️?⃣", r"\1. ", text)
     out = re.sub(r"[ \t]{2,}", " ", _EMOJI.sub("", out))
     return "\n".join(line.lstrip() if line.strip() else "" for line in out.split("\n")).strip()
 
 
 def _note_ui(histories: dict, user_text: str, reply: str) -> None:
-    """Сообщить LLM об изменении, сделанном кнопкой, — дописываем в конец, историю не редактируем."""
     for msgs in histories.values():
         if msgs:
             msgs.append({"role": "user", "content": user_text})
@@ -130,7 +123,6 @@ def _note_ui(histories: dict, user_text: str, reply: str) -> None:
 
 @app.get("/health")
 def liveness() -> dict:
-    """Проверка живости для docker compose и Render: отвечает, если сервер поднят и база доступна."""
     with db.connect() as c:
         c.one("SELECT 1")
     return {"status": "ok"}
@@ -142,7 +134,6 @@ def health() -> dict:
     model = {"claude": agent_llm.MODEL, "gigachat": agent_gigachat.MODEL}.get(p)
     return {"ok": True, "db": db.kind(), "agent": p, "model": model, "provider_label": PROVIDER_LABEL.get(p),
             "integrations": integrations.status(), "cities": [{"id": c.id, "name": c.name, "country": c.country, "tags": c.tags} for c in CITIES.values()],
-            # ключ JavaScript API публичный по устройству: он защищён ограничением по HTTP Referer в кабинете Яндекса
             "yandex_js_key": os.getenv("YANDEX_JS_API_KEY") or None,
             "home_youtube_id": youtube_id(os.getenv("WAYLO_HOME_VIDEO", "https://youtu.be/lyh2kAjcmSY"))}
 
@@ -193,8 +184,6 @@ def get_trip(trip_id: str) -> dict:
 
 @app.post("/api/trips/restore")
 def restore_trip(body: RestoreIn) -> dict:
-    """Вернуть поездку из копии в браузере. На бесплатном Render база живёт до перезапуска сервиса,
-    поэтому браузер хранит последнюю поездку и при необходимости отдаёт её обратно."""
     if got := store.load_trip(body.trip.id):
         return {"trip": got[0], "chat": got[2]}
     store.save_trip(body.trip, {}, body.chat[-200:])
@@ -245,7 +234,6 @@ def _account(authorization: str | None) -> accounts.Account:
 
 
 def _auth_out(acc: accounts.Account, token: str, device_id: str | None) -> dict:
-    # поездки, собранные на этом устройстве до входа, переносятся в профиль
     if device_id and not device_id.startswith("acc_"):
         store.reassign(device_id, acc.id)
     return {"token": token, "account": acc.model_dump(exclude={"created"})}
@@ -318,7 +306,6 @@ def delete_guest(guest_id: str, authorization: str | None = Header(default=None)
 
 
 def _own_trip(trip: Trip, acc: accounts.Account) -> None:
-    """Оплачивать можно только свою поездку; собранная до входа на этом устройстве становится своей."""
     if trip.user_id == acc.id:
         return
     if trip.user_id.startswith("acc_"):
@@ -335,7 +322,6 @@ def support_create(body: SupportIn) -> dict:
 
 @app.post("/api/support/sync")
 def support_sync(body: SupportSyncIn) -> dict:
-    """Обращения пользователя; копии из браузера, которых сервер не знает, восстанавливаются."""
     known = {t.id for t in support.by_user(body.user_id)}
     for t in body.tickets:
         if t.id not in known and t.user_id == body.user_id:
@@ -407,7 +393,7 @@ def choose_destination(trip_id: str, body: SelectIn) -> dict:
         planner.plan_trip(trip)
         text = agent_offline.describe_plan(trip, intro=f"Выбрали {CITIES[body.option_id].name}. Собрал поездку:")
     chat_log.append({"role": "assistant", "text": text, "agent": "ui", "at": datetime.now().strftime("%H:%M")})
-    histories = _histories(messages)  # чтобы LLM знала о выборе, сделанном кнопкой
+    histories = _histories(messages)
     _note_ui(histories, f"[Пользователь выбрал в интерфейсе направление {body.option_id}; "
              + ("поездка собрана через plan_trip.]" if trip.days else f"агент задал уточняющие вопросы: {text}]"),
              "Принято, поездка собрана." if trip.days else "Жду ответа пользователя.")
@@ -454,7 +440,6 @@ def modify_day(trip_id: str, day: int, body: DayIn) -> dict:
 
 @app.post("/api/trips/{trip_id}/checkout")
 def checkout(trip_id: str, body: CheckoutIn, authorization: str | None = Header(default=None)) -> dict:
-    """Демо-оформление: никаких платежей и бронирований, только сводка и номер заказа с пометкой DEMO."""
     acc = _account(authorization)
     trip, messages, chat_log = _get(trip_id)
     _own_trip(trip, acc)
@@ -502,7 +487,6 @@ def extras(trip_id: str, body: ExtraIn, authorization: str | None = Header(defau
     return {"trip": trip, "chat": chat_log}
 
 
-# Собранный frontend (npm run build) раздаётся тем же сервером — удобно для демо одной командой.
 DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 if DIST.exists():
     app.mount("/assets", StaticFiles(directory=DIST / "assets"), name="assets")

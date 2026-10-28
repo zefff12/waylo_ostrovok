@@ -12,14 +12,11 @@ services:
         value: GigaChat-2-Max
       - key: WAYLO_HOME_VIDEO
         value: https://youtu.be/lyh2kAjcmSY
-      # секреты вводятся в панели Render при создании сервиса
       - key: GIGACHAT_CREDENTIALS
         sync: false
       - key: YANDEX_JS_API_KEY
         sync: false
-      # PostgreSQL: адрес базы Render (Internal Database URL), без него данные в SQLite до перезапуска
       - key: DATABASE_URL
         sync: false
-      # ключ для /support-admin: Render сгенерирует его сам, посмотреть — Environment в панели сервиса
       - key: SUPPORT_ADMIN_TOKEN
         generateValue: true

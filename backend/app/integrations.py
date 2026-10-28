@@ -1,4 +1,3 @@
-"""Внешние API. Каждая функция возвращает данные или None — ошибки сети не роняют приложение."""
 from __future__ import annotations
 
 import logging
@@ -11,7 +10,7 @@ import httpx
 log = logging.getLogger("waylo.integrations")
 
 _cache: dict[str, tuple[float, object]] = {}
-_status: dict[str, str] = {}  # последняя ошибка по интеграции — показываем в /api/health
+_status: dict[str, str] = {}
 TTL = 3600
 
 
@@ -19,10 +18,10 @@ def _get(name: str, url: str, params: dict, timeout: float = 8.0) -> dict | list
     key = url + repr(sorted(params.items()))
     hit = _cache.get(key)
     if hit and time.time() - hit[0] < TTL:
-        return hit[1]  # type: ignore[return-value]
+        return hit[1]
     if name == "overpass" and any(k.startswith("https://overpass") and v[1] is None and time.time() - v[0] < TTL
                                   for k, v in _cache.items()):
-        return None  # один из зеркал недавно упал — не ждём таймаут повторно
+        return None
     try:
         r = httpx.get(url, params=params, timeout=timeout, headers={"User-Agent": "Waylo-hackathon-MVP/0.1"})
         r.raise_for_status()
@@ -30,7 +29,7 @@ def _get(name: str, url: str, params: dict, timeout: float = 8.0) -> dict | list
     except (httpx.HTTPError, ValueError) as e:
         _status[name] = f"ошибка: {type(e).__name__}"
         log.warning("%s failed: %s", name, e)
-        _cache[key] = (time.time() - TTL + 300, None)  # не долбим упавший сервис 5 минут
+        _cache[key] = (time.time() - TTL + 300, None)
         return None
     _status[name] = "ok"
     _cache[key] = (time.time(), data)
@@ -50,10 +49,9 @@ def status() -> dict:
     }
 
 
-# ---------- Open-Meteo: прогноз и климат ----------
+# Open-Meteo: прогноз и климат
 
 def forecast(lat: float, lon: float, start: date, end: date) -> list[dict] | None:
-    """Прогноз доступен на ~16 дней вперёд. Возвращает [{date, tmax, tmin, precip}]."""
     if start > date.today() + timedelta(days=15):
         return None
     data = _get("open_meteo", "https://api.open-meteo.com/v1/forecast", {
@@ -65,7 +63,6 @@ def forecast(lat: float, lon: float, start: date, end: date) -> list[dict] | Non
 
 
 def same_dates_last_year(lat: float, lon: float, start: date, end: date) -> list[dict] | None:
-    """Фактическая погода в те же даты год назад — честная климатическая подсказка, не прогноз."""
     s = start.replace(year=start.year - 1)
     e = end.replace(year=end.year - 1)
     data = _get("open_meteo", "https://archive-api.open-meteo.com/v1/archive", {
@@ -86,7 +83,6 @@ def _month_range(month: int) -> tuple[date, date]:
 
 
 def month_climate_many(points: list[tuple[float, float]], month: int) -> list[dict | None]:
-    """Климат месяца сразу для нескольких точек — один запрос (Open-Meteo принимает списки координат)."""
     start, end = _month_range(month)
     data = _get("open_meteo", "https://archive-api.open-meteo.com/v1/archive", {
         "latitude": ",".join(str(p[0]) for p in points), "longitude": ",".join(str(p[1]) for p in points),
@@ -101,7 +97,6 @@ def month_climate_many(points: list[tuple[float, float]], month: int) -> list[di
 
 
 def month_climate(lat: float, lon: float, month: int) -> dict | None:
-    """Средние за месяц прошлого года: tmax, tmin, дождливые дни."""
     return month_climate_many([(lat, lon)], month)[0]
 
 
@@ -134,7 +129,7 @@ def _daily(data) -> list[dict] | None:
     ]
 
 
-# ---------- Travelpayouts / Aviasales: цены из кэша поисков ----------
+# Travelpayouts / Aviasales: цены из кэша поисков
 
 def flight_prices(origin: str, dest: str, depart: date, ret: date) -> list[dict] | None:
     token = os.getenv("TRAVELPAYOUTS_TOKEN")
@@ -150,7 +145,7 @@ def flight_prices(origin: str, dest: str, depart: date, ret: date) -> list[dict]
     return data.get("data") or None
 
 
-# ---------- Места: 2ГИС Places API или OSM Overpass ----------
+# Места: 2ГИС Places API или OSM Overpass
 
 def dgis_places(query: str, lat: float, lon: float, radius_m: int = 2500, limit: int = 8) -> list[dict] | None:
     key = os.getenv("DGIS_API_KEY")
@@ -198,10 +193,9 @@ def overpass_cafes(lat: float, lon: float, radius_m: int = 1500, limit: int = 8)
     return out
 
 
-# ---------- Яндекс Геокодер: адрес по координатам ----------
+# Яндекс Геокодер: адрес по координатам
 
 def yandex_address(lat: float, lon: float) -> str | None:
-    """«Улица, дом» по координатам. Бесплатный тариф — 1000 запросов в сутки, поэтому только для выгрузок."""
     key = os.getenv("YANDEX_JS_API_KEY")
     if not key:
         return None
@@ -209,7 +203,7 @@ def yandex_address(lat: float, lon: float) -> str | None:
         "apikey": key, "geocode": f"{lon},{lat}", "kind": "house", "format": "json", "results": 1, "lang": "ru_RU",
     })
     try:
-        member = data["response"]["GeoObjectCollection"]["featureMember"]  # type: ignore[index]
+        member = data["response"]["GeoObjectCollection"]["featureMember"]
         return member[0]["GeoObject"]["name"] if member else None
     except (KeyError, TypeError, IndexError):
         return None

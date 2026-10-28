@@ -1,9 +1,6 @@
 import { useEffect, useState } from "react";
 import { GlassIcon, Icon, type IconName } from "./Icons";
 
-/* Первый запуск: заставка с оригинальным логотипом → онбординг из трёх экранов.
-   Флаг в localStorage: при обычных открытиях заставка не показывается. */
-
 const SEEN_KEY = "waylo_intro_v1";
 
 export function introSeen(): boolean {
@@ -11,28 +8,25 @@ export function introSeen(): boolean {
 }
 
 function markSeen() {
-  try { localStorage.setItem(SEEN_KEY, "1"); } catch { /* приватный режим — покажем ещё раз, не страшно */ }
+  try { localStorage.setItem(SEEN_KEY, "1"); } catch {}
 }
 
 function reduced() {
   return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** Заставка: проявление логотипа, проход света, мягкий подъём и растворение в главном экране. */
 export function Splash({ onDone }: { onDone: () => void }) {
   const [phase, setPhase] = useState<"in" | "out">("in");
-  // ?intro=hold — заставка ждёт клика (для презентации)
   const hold = new URLSearchParams(location.search).get("intro") === "hold";
   const leave = () => {
     setPhase("out");
     setTimeout(() => { performance.mark("waylo-splash-end"); onDone(); }, 650);
   };
   useEffect(() => {
-    performance.mark("waylo-splash-start");  // метки видны в DevTools → Performance
+    performance.mark("waylo-splash-start");
     if (hold) return;
     const t = setTimeout(leave, reduced() ? 400 : 2300);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
     <div className={`splash ${phase}`} onClick={() => phase === "in" && leave()} role="presentation">
@@ -66,7 +60,6 @@ export function Onboarding({ onFinish, onTry }: { onFinish: () => void; onTry: (
     };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

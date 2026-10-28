@@ -129,7 +129,7 @@ function PaySheet({ offer, busy, onClose, onPaid }: {
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
   }, [onClose]);
-  return createPortal(  // поверх шапки и чата, как фильтры отелей
+  return createPortal(
     <div className="sheet-wrap" onClick={onClose}>
       <div className="sheet glass-modal" role="dialog" aria-modal="true" aria-label={`Оплата: ${offer.title}`} onClick={(e) => e.stopPropagation()}>
         <div className="sheet-grip" />

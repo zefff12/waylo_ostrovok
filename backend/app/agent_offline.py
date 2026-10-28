@@ -1,6 +1,6 @@
-"""Офлайн-агент: правила вместо LLM. Работает без ключа и подхватывает, если Claude недоступен.
+"""Офлайн-агент: правила вместо LLM. Работает без ключа и подхватывает, если нейросеть недоступна.
 
-Вызывает те же инструменты, что и Claude, поэтому план и расчёты одинаковые — отличаются только тексты.
+Вызывает те же инструменты, что и агент на нейросети, поэтому план и расчёты одинаковые, отличаются только тексты.
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def handle(trip: Trip, text: str, profile: dict | None = None) -> str:
         planner.plan_trip(trip)
         return describe_plan(trip, intro=f"Отлично, {CITIES[chosen].name}. Собрал поездку:")
 
-    parsed = parse_answer(text, trip)  # учитываем, на какие вопросы отвечает пользователь
+    parsed = parse_answer(text, trip)
     new_city = parsed.get("destination")
     if trip.days and (not new_city or new_city == trip.params.destination):
         cmds = parse_command(text)
@@ -158,7 +158,7 @@ def _budget_line(trip: Trip) -> str:
 
 def not_found(trip: Trip) -> str:
     g = trip.budget_gap or {}
-    city = CITIES[trip.params.destination].name  # type: ignore[index]
+    city = CITIES[trip.params.destination].name
     lines = [f"**С бюджетом {rub(g['limit'])} ничего не найдено.** Самый дешёвый вариант ({city}: дорога, отель, еда и билеты) "
              f"стоит {rub(g['min_total'])} — на {rub(g['over_by'])} больше.",
              "Что можно сделать:", f"1. Увеличить бюджет до {rub(g['min_total'])}."]
@@ -172,8 +172,8 @@ def describe_plan(trip: Trip, intro: str) -> str:
     if trip.budget_gap:
         return not_found(trip)
     p = trip.params
-    city = CITIES[p.destination]  # type: ignore[index]
-    s = date.fromisoformat(p.start_date)  # type: ignore[arg-type]
+    city = CITIES[p.destination]
+    s = date.fromisoformat(p.start_date)
     e = s + timedelta(days=p.nights or 0)
     t, h = trip.transport(), trip.hotel()
     lines = [intro, f"**{city.name}**, {s:%d.%m} – {e:%d.%m} ({p.nights} ноч.), {p.adults} взр." + (f" + {p.children} реб." if p.children else "") + (" + питомец" if p.pets else "")]

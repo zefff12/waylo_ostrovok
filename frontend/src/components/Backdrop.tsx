@@ -2,9 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { YouTubeLayer } from "./YouTubeLayer";
 import type { Health, Trip } from "../types";
 
-/* Слои 1–3 дизайн-системы: фоновое видео, атмосферное наложение, градиентная маска.
-   Видео одно на всё приложение и не перехватывает нажатия (pointer-events: none). */
-
 export type Scene = "field" | "wheat" | "sea" | "rain";
 
 const SCENES: Record<Scene, { label: string; pos: string }> = {
@@ -14,7 +11,6 @@ const SCENES: Record<Scene, { label: string; pos: string }> = {
   rain: { label: "Дождь за окном", pos: "40% 40%" },
 };
 
-/** Сцена под поездку: море — для морских направлений, дождь — если прогноз дождливый. */
 export function sceneFor(trip: Trip | null, health: Health | null): Scene {
   if (!trip?.params.destination) return "field";
   const rainy = trip.days.filter((d) => (d.weather?.precip_mm ?? 0) >= 3).length;
@@ -38,10 +34,9 @@ export function Backdrop({ scene, mode, paused, youtubeId }: {
   const still = paused || reducedMotion();
   const [ytFailed, setYtFailed] = useState(false);
   const onYtFail = useCallback(() => setYtFailed(true), []);
-  // главный экран — видео из ссылки YouTube; локальная сцена остаётся под ним как запасной вариант
   const useYoutube = mode === "home" && Boolean(youtubeId) && !ytFailed && !reducedMotion();
 
-  useEffect(() => {  // мягкая смена сцены: затемняем, меняем источник, проявляем
+  useEffect(() => {
     if (scene === shown) return;
     setFading(true);
     const t = setTimeout(() => { setShown(scene); setCanPlay(false); setFading(false); }, 450);
@@ -52,7 +47,7 @@ export function Backdrop({ scene, mode, paused, youtubeId }: {
     const v = video.current;
     if (!v) return;
     if (still) { v.pause(); return; }
-    v.play().catch(() => undefined);  // автозапуск запрещён — остаётся постер
+    v.play().catch(() => undefined);
   }, [still, shown]);
 
   return (

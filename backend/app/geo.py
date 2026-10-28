@@ -1,11 +1,10 @@
-"""Геометрия и время: расстояния, пешие переходы, поездки по городу."""
 from __future__ import annotations
 
 import math
 from datetime import datetime, timedelta
 
 WALK_KMH = 4.5
-DETOUR = 1.3  # улицы не по прямой
+DETOUR = 1.3
 
 
 def km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -21,7 +20,6 @@ def walk_minutes(dist_km: float) -> int:
 
 
 def transit_minutes(dist_km: float) -> int:
-    """Метро/такси по городу: посадка + ~20 км/ч в среднем."""
     return round(10 + dist_km * DETOUR / 20 * 60)
 
 

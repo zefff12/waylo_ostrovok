@@ -1,4 +1,3 @@
-"""Вдохновение: 2–3 направления с климатом, ценой и временем в пути, когда город не задан."""
 from __future__ import annotations
 
 from . import integrations
@@ -7,7 +6,6 @@ from .schemas import DestinationOption, Explanation, TripParams
 from .transport import flight_hours, rail_hours
 from .geo import km
 
-# интерес пользователя → тег направления и как это объяснить
 INTEREST_TAGS = {
     "park": ("nature", "природа рядом"),
     "history": ("history", "история"),
@@ -73,7 +71,7 @@ def suggest(p: TripParams, limit: int = 3) -> list[DestinationOption]:
             trade.append(f"Дорога {hours:g} ч — дольше, чем хотелось")
         else:
             why.append(f"В пути {hours:g} ч ({mode})")
-            if not limit_h and hours > 10:  # дальний перелёт без пересадок редко то, что имели в виду
+            if not limit_h and hours > 10:
                 s -= 1.5
                 trade.append(f"Долгая дорога: {hours:g} ч")
         if p.budget_rub and total > p.budget_rub:
@@ -89,7 +87,6 @@ def suggest(p: TripParams, limit: int = 3) -> list[DestinationOption]:
             explanation=Explanation(why=why, tradeoffs=trade, risks=risks), score=round(s, 2),
         ))
     if ("cheap" in p.wishes or p.budget_rub) and opts:
-        # цена относительно самого дешёвого кандидата: иначе все дальние направления одинаково «дорогие»
         cheapest = min(o.est_total_rub for o in opts)
         for o in opts:
             o.score = round(o.score + 4 * cheapest / o.est_total_rub - 2, 2)
@@ -97,7 +94,7 @@ def suggest(p: TripParams, limit: int = 3) -> list[DestinationOption]:
                 o.score = round(o.score + max(-2, min(1, (p.budget_rub - o.est_total_rub) / p.budget_rub * 3)), 2)
     opts.sort(key=lambda o: -o.score)
     picked: list[DestinationOption] = []
-    for o in opts:  # не больше двух направлений из одной страны — пользователю нужен выбор
+    for o in opts:
         if sum(x.country == o.country for x in picked) < (2 if o.country == "Россия" else 1):
             picked.append(o)
         if len(picked) == limit:

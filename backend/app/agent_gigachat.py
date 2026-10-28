@@ -1,10 +1,10 @@
-"""Агент на GigaChat (Сбер) с вызовом функций. Те же инструменты, что у Claude (agent_tools).
+"""Агент на GigaChat (Сбер) с вызовом функций.
 
 Особенности API GigaChat:
-- авторизация: ключ авторизации (Base64 от Client ID:Client Secret) → POST /oauth → токен на 30 минут;
+- авторизация: ключ авторизации (Base64 от Client ID:Client Secret) обменивается через POST /oauth на токен на 30 минут;
 - функция за ход одна: модель возвращает message.function_call {name, arguments}, finish_reason = "function_call";
 - результат отправляется сообщением role="function" с JSON-объектом, обёрнутым в строку;
-- TLS-сертификат API выдан Russian Trusted Root CA (Минцифры) — путь к нему задаётся GIGACHAT_CA_BUNDLE.
+- TLS-сертификат API выдан Russian Trusted Root CA (Минцифры), путь к нему задаётся GIGACHAT_CA_BUNDLE.
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ _lock = threading.Lock()
 
 
 class GigaChatError(Exception):
-    """Любая ошибка обращения к GigaChat: сеть, TLS, авторизация, ответ API."""
+    ...
 
 
 def available() -> bool:
@@ -47,10 +47,10 @@ def _verify() -> str | bool:
     bundle = os.getenv("GIGACHAT_CA_BUNDLE")
     if bundle:
         return bundle
-    if BUNDLED_CA.is_file():  # сертификат лежит в репозитории — на сервере путь задавать не нужно
+    if BUNDLED_CA.is_file():
         return str(BUNDLED_CA)
     if os.getenv("GIGACHAT_VERIFY_SSL", "true").lower() in ("0", "false", "no"):
-        return False  # только для локальной разработки
+        return False
     return True
 
 
@@ -77,7 +77,7 @@ def _get_token(client: httpx.Client) -> str:
             raise GigaChatError(f"авторизация {r.status_code}: проверьте GIGACHAT_CREDENTIALS и GIGACHAT_SCOPE ({r.text[:120]})")
         body = r.json()
         _token["value"] = body["access_token"]
-        _token["expires_at"] = body.get("expires_at", 0) / 1000 or time.time() + 25 * 60  # API отдаёт миллисекунды
+        _token["expires_at"] = body.get("expires_at", 0) / 1000 or time.time() + 25 * 60
         return _token["value"]
 
 
@@ -89,7 +89,6 @@ def _tls_hint(e: Exception) -> str:
 
 
 def _functions() -> list[dict]:
-    """Схемы Anthropic → функции GigaChat: input_schema → parameters, без additionalProperties."""
     def clean(schema: dict) -> dict:
         out = {k: v for k, v in schema.items() if k != "additionalProperties"}
         if "properties" in out:
@@ -126,7 +125,6 @@ def _chat(client: httpx.Client, messages: list[dict]) -> dict:
 
 
 def _json_result(out: dict, limit: int = 20000) -> str:
-    """GigaChat требует валидный JSON в строке — длинный результат не обрезаем посередине, а оборачиваем."""
     s = json.dumps(out, ensure_ascii=False, default=str)
     if len(s) <= limit:
         return s
@@ -134,14 +132,13 @@ def _json_result(out: dict, limit: int = 20000) -> str:
 
 
 def handle(trip: Trip, text: str, messages: list, profile: dict | None = None) -> str:
-    """Один ход диалога. messages — история в формате GigaChat (без system), только добавляем."""
     content = text
     if profile and not messages:
         content += f"\n\n[Память о прошлых поездках пользователя: {json.dumps(profile, ensure_ascii=False)}. Учитывай, если уместно, и скажи об этом.]"
     if trip.days:
         content += f"\n\n[Состояние: поездка уже собрана, город {trip.params.destination}, {len(trip.days)} дн. Меняй точечно.]"
     early, note = begin_turn(trip, text)
-    if early:  # уточнение идёт без модели: вопросы задаёт планировщик
+    if early:
         messages += [{"role": "user", "content": content}, {"role": "assistant", "content": early}]
         return early
     if note:
@@ -161,25 +158,24 @@ def handle(trip: Trip, text: str, messages: list, profile: dict | None = None) -
                 answer = (msg.get("content") or "").strip()
                 messages.append({"role": "assistant", "content": answer})
                 return answer or "Готово — смотрите план справа."
-            # ответ с вызовом функции возвращаем в историю как есть, вместе с functions_state_id
             assistant = {"role": "assistant", "content": msg.get("content") or "", "function_call": call}
             if msg.get("functions_state_id"):
                 assistant["functions_state_id"] = msg["functions_state_id"]
             messages.append(assistant)
             args = call.get("arguments") or {}
-            if isinstance(args, str):  # в документации тип описан двояко: объект или JSON-строка
+            if isinstance(args, str):
                 try:
                     args = json.loads(args) if args.strip() else {}
                 except json.JSONDecodeError:
                     args = {}
             try:
                 out = execute(trip, call["name"], args)
-            except Exception as e:  # модель должна узнать об ошибке и исправиться, а не получить тишину
+            except Exception as e:
                 log.exception("tool %s failed", call.get("name"))
                 planner.log_tool(trip, call.get("name", "?"), f"ошибка: {e}", ok=False)
                 out = {"error": f"Ошибка инструмента: {e}"}
             messages.append({"role": "function", "name": call["name"], "content": _json_result(out)})
-            if "need_clarification" in out:  # данных не хватает — заканчиваем ход вопросом, а не новыми вызовами
+            if "need_clarification" in out:
                 messages.append({"role": "assistant", "content": out["text"]})
                 return out["text"]
     return fallback_reply(trip)

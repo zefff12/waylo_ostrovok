@@ -1,4 +1,4 @@
-"""Операции над поездкой. Их вызывают и Claude (как инструменты), и офлайн-агент.
+"""Операции над поездкой. Их вызывают и нейросеть (как инструменты), и офлайн-агент.
 
 Каждая операция меняет только зависимые части плана и пишет в журнал, что изменилось.
 """
@@ -75,7 +75,6 @@ def _record(trip: Trip, before: dict, summary: str) -> ChangeEntry:
 
 
 def recompute(trip: Trip) -> None:
-    """Пересчитать зависимые от выбора вещи: маршруты дня, бюджет, состыковки."""
     for d in trip.days:
         walks.route_day(trip, d)
     trip.budget = budget_mod.calc(trip)
@@ -84,21 +83,20 @@ def recompute(trip: Trip) -> None:
 
 
 def budget_gap(trip: Trip) -> dict | None:
-    """Чего не хватает до бюджета и что можно сделать: на сколько ночей сократить или до какой суммы поднять лимит."""
     b, p, h = trip.budget, trip.params, trip.hotel()
     if not (b.limit and b.over_by > 0 and trip.days):
         return None
-    city = CITIES[p.destination]  # type: ignore[index]
+    city = CITIES[p.destination]
     per_night = (h.price_per_night if h else 0) + int(city.food_per_person_day * (p.adults + p.children * 0.6))
     fewer = None
     if per_night and p.nights and p.nights > 1:
-        cut = -(-b.over_by // per_night)  # округление вверх
+        cut = -(-b.over_by // per_night)
         if cut < p.nights:
             fewer = {"nights": p.nights - cut, "total": b.total - cut * per_night}
     return {"limit": b.limit, "min_total": b.total, "over_by": b.over_by, "fewer_nights": fewer}
 
 
-# ---------- параметры ----------
+# параметры
 
 def default_start(p: TripParams) -> str:
     today = date.today()
@@ -109,7 +107,7 @@ def default_start(p: TripParams) -> str:
             d = today + timedelta(days=5)
     else:
         d = today + timedelta(days=14)
-    while d.weekday() != 4:  # ближайшая пятница
+    while d.weekday() != 4:
         d += timedelta(days=1)
     return d.isoformat()
 
@@ -122,8 +120,6 @@ def missing(p: TripParams) -> list[str]:
 
 
 def clarify(trip: Trip) -> list[str]:
-    """Вопросы о том, чего пользователь ещё не назвал. Спрашиваем, пока не узнаем всё,
-    или пока пользователь сам не скажет «на ваше усмотрение» (тогда недостающее берём допущением)."""
     p = trip.params
     if p.clarified or not p.destination:
         return []
@@ -145,7 +141,7 @@ def clarify_text(trip: Trip) -> str:
     qs = clarify(trip)
     p = trip.params
     trip.status = "need_info"
-    name = CITIES[p.destination].name if p.destination else "поездку"  # type: ignore[index]
+    name = CITIES[p.destination].name if p.destination else "поездку"
     got = _known_summary(p)
     if p.asked and got:
         lines = [f"Спасибо, учёл: {got}. Чтобы собрать поездку точно, осталось уточнить:"]
@@ -175,14 +171,10 @@ def _known_summary(p: TripParams) -> str:
 
 
 def apply_params(trip: Trip, upd: dict, known: list[str] | None = None) -> list[str]:
-    """Обновить параметры; вернуть список сделанных допущений.
-
-    known — поля, которые пользователь назвал сам (по умолчанию все ключи upd).
-    """
     p = trip.params
     named = [k for k in (upd if known is None else known) if upd.get(k) not in (None, [], "")]
     p.known = list(dict.fromkeys([*p.known, *named]))
-    if upd.get("delegate"):  # «на ваше усмотрение» — пользователь разрешил не переспрашивать
+    if upd.get("delegate"):
         p.clarified = True
     stale = {"start_date": "Точные даты", "nights": "Длительность", "adults": "Путешественники", "children": "Путешественники"}
     p.assumptions = [a for a in p.assumptions if not any(a.startswith(stale[k]) for k in named if k in stale)]
@@ -214,7 +206,7 @@ def apply_params(trip: Trip, upd: dict, known: list[str] | None = None) -> list[
     return assumptions
 
 
-# ---------- инструменты ----------
+# инструменты
 
 def suggest_destinations(trip: Trip) -> list[dict]:
     opts = destinations.suggest(trip.params)
@@ -228,7 +220,7 @@ def suggest_destinations(trip: Trip) -> list[dict]:
 
 
 def _load_places(trip: Trip) -> None:
-    city = CITIES[trip.params.destination]  # type: ignore[index]
+    city = CITIES[trip.params.destination]
     places = city_places(city)
     fut = _pool.submit(lambda: integrations.dgis_places("кафе", city.lat, city.lon) or integrations.overpass_cafes(city.lat, city.lon))
     try:
@@ -251,8 +243,8 @@ def _load_places(trip: Trip) -> None:
 
 def _weather(trip: Trip) -> None:
     p = trip.params
-    city = CITIES[p.destination]  # type: ignore[index]
-    start = date.fromisoformat(p.start_date)  # type: ignore[arg-type]
+    city = CITIES[p.destination]
+    start = date.fromisoformat(p.start_date)
     end = start + timedelta(days=p.nights or 0)
     rows = integrations.forecast(city.lat, city.lon, start, end)
     kind, source = "confirmed", "Open-Meteo, прогноз"
@@ -274,7 +266,6 @@ def _weather(trip: Trip) -> None:
 
 
 def plan_trip(trip: Trip) -> dict:
-    """Собрать поездку целиком: транспорт, отель, места, прогулки, бюджет, состыковки."""
     p = trip.params
     if not p.destination:
         return {"error": "Не задано направление. Спросите пользователя или вызовите suggest_destinations."}
@@ -304,7 +295,6 @@ def plan_trip(trip: Trip) -> dict:
 
 
 def _focus(trip: Trip) -> tuple[float, float]:
-    """Центр тяжести интересных мест — к нему тянем отель."""
     pts = [pl for pl in trip.places if walks.place_score(pl, trip.params.interests) > 1.5 and pl.cats != ["cafe"]] or trip.places
     return (sum(p.lat for p in pts) / len(pts), sum(p.lon for p in pts) / len(pts))
 
@@ -351,7 +341,7 @@ def select_transport(trip: Trip, option_id: str) -> dict:
     trip.selected_transport_id = option_id
     _rewindow(trip)
     recompute(trip)
-    e = _record(trip, before, f"Выбран транспорт: {trip.transport().title}")  # type: ignore[union-attr]
+    e = _record(trip, before, f"Выбран транспорт: {trip.transport().title}")
     log_tool(trip, "select_transport", e.summary)
     return {"changes": e.details, **summary(trip)}
 
@@ -362,10 +352,10 @@ def select_hotel(trip: Trip, hotel_id: str) -> dict:
     before = _snapshot(trip)
     trip.selected_hotel_id = hotel_id
     _rewindow(trip)
-    for d in trip.days:  # места дня сохраняем, меняется старт и порядок
+    for d in trip.days:
         walks.optimize_order(trip, d)
     recompute(trip)
-    e = _record(trip, before, f"Выбран отель: {trip.hotel().name}")  # type: ignore[union-attr]
+    e = _record(trip, before, f"Выбран отель: {trip.hotel().name}")
     log_tool(trip, "select_hotel", e.summary + " — маршруты пересчитаны от нового отеля")
     return {"changes": e.details, **summary(trip)}
 
@@ -381,7 +371,6 @@ def _rewindow(trip: Trip) -> None:
 
 
 def modify_day(trip: Trip, day: int, action: str, category: str | None = None, place_id: str | None = None) -> dict:
-    """action: less_walking | rain | replace_with_cafe | add_category | remove_place | more_walking"""
     d = next((x for x in trip.days if x.day == day), None)
     if not d:
         return {"error": f"Нет дня {day}"}
@@ -403,16 +392,15 @@ def modify_day(trip: Trip, day: int, action: str, category: str | None = None, p
         text = f"День {day}: дождь — только крытые места и короткие переходы"
     elif action == "replace_with_cafe":
         target = place_id or _least_valuable_sight(trip, d)
-        # кафе можно повторить в другой день — в отличие от музея, это нормально
         cafes = [p for p in walks.unused_places(trip) if "cafe" in p.cats] or [
             p for p in trip.places if "cafe" in p.cats and p.id not in d.place_ids]
         if not target or not cafes:
             return {"error": "Нечего заменить или нет свободных кафе рядом"}
         old = trip.place(target)
-        new = min(cafes, key=lambda c: _dist(old, c))  # type: ignore[arg-type]
+        new = min(cafes, key=lambda c: _dist(old, c))
         d.place_ids = [new.id if pid == target else pid for pid in d.place_ids]
         walks.route_day(trip, d)
-        text = f"День {day}: «{old.name}» → кафе «{new.name}»"  # type: ignore[union-attr]
+        text = f"День {day}: «{old.name}» → кафе «{new.name}»"
     elif action == "add_category":
         cat = category or "museum"
         pool = walks.unused_places(trip)
@@ -437,7 +425,7 @@ def modify_day(trip: Trip, day: int, action: str, category: str | None = None, p
     elif action == "remove_place":
         if place_id not in d.place_ids:
             return {"error": "Такой точки в дне нет"}
-        d.place_ids.remove(place_id)  # type: ignore[arg-type]
+        d.place_ids.remove(place_id)
         walks.route_day(trip, d)
         text = f"День {day}: точка убрана"
     else:
@@ -449,7 +437,6 @@ def modify_day(trip: Trip, day: int, action: str, category: str | None = None, p
 
 
 def _compact_core(trip: Trip, d) -> list[str]:
-    """Самое ценное место дня и соседи в радиусе ~1 км — ядро дня без длинных переходов."""
     places = [p for pid in d.place_ids if (p := trip.place(pid))]
     if not places:
         return []
@@ -473,20 +460,19 @@ def _day_center(trip: Trip, d) -> tuple[float, float]:
     if not pts:
         h = trip.hotel()
         return (h.lat, h.lon) if h else (0.0, 0.0)
-    return (sum(p.lat for p in pts) / len(pts), sum(p.lon for p in pts) / len(pts))  # type: ignore[union-attr]
+    return (sum(p.lat for p in pts) / len(pts), sum(p.lon for p in pts) / len(pts))
 
 
 def _least_valuable_sight(trip: Trip, d, exclude: str | None = None) -> str | None:
     sights = [pid for pid in d.place_ids if pid != exclude and (pl := trip.place(pid)) and "cafe" not in pl.cats]
     if not sights:
         return None
-    return min(sights, key=lambda pid: walks.place_score(trip.place(pid), trip.params.interests))  # type: ignore[arg-type]
+    return min(sights, key=lambda pid: walks.place_score(trip.place(pid), trip.params.interests))
 
 
 def shift_dates(trip: Trip, days: int) -> dict:
-    """Сдвиг поездки: транспорт ищем заново на новые даты, отель и места сохраняем."""
     before = _snapshot(trip)
-    s = date.fromisoformat(trip.params.start_date) + timedelta(days=days)  # type: ignore[arg-type]
+    s = date.fromisoformat(trip.params.start_date) + timedelta(days=days)
     trip.params.start_date = s.isoformat()
     keep_mode = trip.transport().mode if trip.transport() else None
     trip.transport_options = transport.search_transport(trip.params)
@@ -495,10 +481,10 @@ def shift_dates(trip: Trip, days: int) -> dict:
     for d in trip.days:
         d.date = (s + timedelta(days=d.day - 1)).isoformat()
     _rewindow(trip)
-    for d in trip.days:  # из-за выходных дней музеев день мог стать невалидным
-        if any(trip.place(pid) and date.fromisoformat(d.date).weekday() in trip.place(pid).closed_weekdays for pid in d.place_ids):  # type: ignore[union-attr]
+    for d in trip.days:
+        if any(trip.place(pid) and date.fromisoformat(d.date).weekday() in trip.place(pid).closed_weekdays for pid in d.place_ids):
             walks.reselect_day(trip, d, keep=[pid for pid in d.place_ids
-                                              if date.fromisoformat(d.date).weekday() not in trip.place(pid).closed_weekdays])  # type: ignore[union-attr]
+                                              if date.fromisoformat(d.date).weekday() not in trip.place(pid).closed_weekdays])
     _weather(trip)
     recompute(trip)
     e = _record(trip, before, f"Поездка сдвинута на {days:+d} дн.")
@@ -509,7 +495,6 @@ def shift_dates(trip: Trip, days: int) -> dict:
 def set_constraints(trip: Trip, pets: bool | None = None, children: int | None = None, budget_rub: int | None = None,
                     adults: int | None = None, priority: str | None = None, walking: str | None = None,
                     nights: int | None = None, clear_budget: bool = False) -> dict:
-    """Новые жёсткие ограничения: пересобираем только то, что они затрагивают."""
     before = _snapshot(trip)
     p = trip.params
     changed = []
@@ -530,10 +515,10 @@ def set_constraints(trip: Trip, pets: bool | None = None, children: int | None =
         p.known = list(dict.fromkeys([*p.known, "budget_none"]))
         changed.append("бюджет")
     if priority:
-        p.priority = priority  # type: ignore[assignment]
+        p.priority = priority
         changed.append("приоритет")
     if walking:
-        p.walking = walking  # type: ignore[assignment]
+        p.walking = walking
         changed.append("темп")
     if nights is not None and nights != p.nights:
         p.nights = nights
@@ -543,7 +528,7 @@ def set_constraints(trip: Trip, pets: bool | None = None, children: int | None =
     if {"число гостей", "длительность"} & set(changed):
         return plan_trip(trip) | {"changed": changed}
     if {"питомец", "дети", "приоритет", "число гостей"} & set(changed):
-        city = CITIES[p.destination]  # type: ignore[index]
+        city = CITIES[p.destination]
         trip.hotel_options = hotels.rank(hotels.generate(city, p, _focus(trip)), p, _focus(trip))
         cur = trip.hotel()
         if not cur or cur.id != trip.hotel_options[0].id:
@@ -562,8 +547,6 @@ def set_constraints(trip: Trip, pets: bool | None = None, children: int | None =
             d.less_walking = p.walking == "low"
             walks.reselect_day(trip, d, keep=list(d.place_ids)[:3] if d.less_walking else list(d.place_ids))
     if "бюджет" in changed:
-        # новый лимит: заново берём лучшие по рейтингу дорогу и отель и только потом ужимаемся под бюджет —
-        # иначе при росте бюджета план остался бы «экономным», а при снятии лимита ничего бы не поменялось
         ok_t = [o for o in trip.transport_options if o.pets_allowed or not p.pets] or trip.transport_options
         if ok_t and trip.hotel_options:
             trip.selected_transport_id, trip.selected_hotel_id = ok_t[0].id, trip.hotel_options[0].id
@@ -586,11 +569,6 @@ def set_constraints(trip: Trip, pets: bool | None = None, children: int | None =
 
 
 def fit_budget(trip: Trip) -> bool:
-    """Уложиться в бюджет пользователя: лучшая по рейтингу пара транспорт + отель, которая в него влезает.
-
-    Если даже самый дешёвый вариант дороже, бесплатные места заменяют платные; не помогло — честно
-    помечаем критичную проблему, и оформление блокируется, пока пользователь не решит, что менять.
-    """
     p = trip.params
     if not p.budget_rub or trip.budget.total <= p.budget_rub:
         return True
@@ -602,7 +580,6 @@ def fit_budget(trip: Trip) -> bool:
             trip.selected_transport_id, trip.selected_hotel_id = t.id, h.id
             total = budget_mod.calc(trip).total
             fits = total <= p.budget_rub
-            # влезающие — лучший по рейтингу (при равенстве дешевле); если не влезает ничего — самый дешёвый
             combos.append((fits, -(ti + hi) if fits else -total, -total, t.id, h.id))
     _, _, _, t_id, h_id = max(combos)
     trip.selected_transport_id, trip.selected_hotel_id = t_id, h_id
@@ -621,12 +598,12 @@ def fit_budget(trip: Trip) -> bool:
 
 
 def _swap_paid_places(trip: Trip) -> None:
-    for d in trip.days:  # самое дорогое платное место дня → бесплатная альтернатива рядом
+    for d in trip.days:
         paid = [pid for pid in d.place_ids if (pl := trip.place(pid)) and pl.ticket_rub >= 600]
         free = [x for x in walks.unused_places(trip) if x.ticket_rub == 0 and "cafe" not in x.cats]
         if paid and free:
-            worst = max(paid, key=lambda pid: trip.place(pid).ticket_rub)  # type: ignore[union-attr]
-            alt = min(free, key=lambda x: _dist(trip.place(worst), x))  # type: ignore[arg-type]
+            worst = max(paid, key=lambda pid: trip.place(pid).ticket_rub)
+            alt = min(free, key=lambda x: _dist(trip.place(worst), x))
             d.place_ids = [alt.id if pid == worst else pid for pid in d.place_ids]
         walks.optimize_order(trip, d)
 
@@ -638,7 +615,7 @@ def make_cheaper(trip: Trip) -> dict:
     trip.transport_options = transport.rank_transport(trip.transport_options, p)
     ok_t = [o for o in trip.transport_options if o.pets_allowed or not p.pets]
     trip.selected_transport_id = min(ok_t, key=lambda o: o.price_total).id
-    city = CITIES[p.destination]  # type: ignore[index]
+    city = CITIES[p.destination]
     trip.hotel_options = hotels.rank(hotels.generate(city, p, _focus(trip)), p, _focus(trip))
     cur = trip.hotel()
     cand = [h for h in trip.hotel_options if h.distance_center_km <= 3.5] or trip.hotel_options
@@ -652,7 +629,7 @@ def make_cheaper(trip: Trip) -> dict:
     log_tool(trip, "make_cheaper", f"{rub(before['total'])} → {rub(trip.budget.total)}")
     saved = before["total"] - trip.budget.total
     out = {"changes": e.details, "total_before": before["total"], "saved_rub": saved, **summary(trip)}
-    if saved <= 0:  # без явной пометки модель склонна сообщать об экономии, которой не было
+    if saved <= 0:
         out["note"] = ("Дешевле не получилось: уже выбраны самые дешёвые транспорт и отель, бесплатных замен рядом нет. "
                        "Скажи об этом честно и предложи сократить число ночей или сдвинуть даты.")
     return out
@@ -662,7 +639,6 @@ EXTRA_ITEM = {"early_checkin": "early_checkin", "transfer": "transfer_booking"}
 
 
 def extra_offers(trip: Trip) -> list:
-    """Что можно докупить после покупки: цена считается заранее и показывается до оплаты."""
     from .schemas import ExtraOffer
 
     t, h = trip.transport(), trip.hotel()
@@ -683,11 +659,10 @@ def extra_offers(trip: Trip) -> list:
 
 
 def _transfer_price(taxi_one_way: int) -> int:
-    return int(round(taxi_one_way * 1.3 / 100) * 100)  # заказной трансфер с встречей дороже такси примерно на треть
+    return int(round(taxi_one_way * 1.3 / 100) * 100)
 
 
 def add_extra(trip: Trip, kind: str) -> dict:
-    """После покупки (демо): ранний заезд или трансфер — отдельная оплата на свою сумму."""
     from .schemas import BudgetItem
 
     offer = next((o for o in extra_offers(trip) if o.kind == kind), None)

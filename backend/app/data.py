@@ -1,8 +1,3 @@
-"""Локальный демо-каталог направлений и мест.
-
-Координаты приблизительные (по OpenStreetMap), часы работы и цены билетов — ориентировочные
-и помечаются как непроверенные. Отели — в hotels_osm.json (см. hotels.py). Дополнительные города — в data_extra.py.
-"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -21,27 +16,26 @@ class Hub:
 class City:
     id: str
     name: str
-    name_gen: str  # «в Казани», «из Москвы» — для текстов
+    name_gen: str
     country: str
     lat: float
     lon: float
     iata: str
     aliases: list[str]
     tags: list[str]
-    hotel_level: int  # средняя цена ночи в стандартном номере на двоих, ₽ (оценка)
-    food_per_person_day: int  # ₽ (оценка)
-    local_transit_rub: int  # одна поездка на общественном транспорте, ₽ (оценка)
+    hotel_level: int
+    food_per_person_day: int
+    local_transit_rub: int
     station: Hub | None
     airport: Hub
     districts: list[str]
     domestic: bool = True
     rail: bool = True
-    has_airport: bool = True  # Владимир, Тула, Великий Новгород — только поезд
+    has_airport: bool = True
     note: str = ""
     places: list[tuple] = field(default_factory=list)
 
 
-# (id, название, категории, lat, lon, крытое, минут, билет ₽, выходные дни, описание)
 SPB_PLACES = [
     ("hermitage", "Эрмитаж (Зимний дворец)", ["museum", "history", "architecture"], 59.9398, 30.3146, True, 150, 500, [0], "Главный художественный музей страны"),
     ("rusmuseum", "Русский музей (Михайловский дворец)", ["museum", "architecture"], 59.9386, 30.3322, True, 120, 500, [1], "Русское искусство от икон до авангарда"),
@@ -231,7 +225,6 @@ CITIES: dict[str, City] = {
     ]
 }
 
-# Время в пути поездом между парами городов, где есть скоростные поезда (часы, по открытым расписаниям, округлено)
 RAIL_HOURS_OVERRIDE = {
     frozenset({"moscow", "spb"}): 4.0,
     frozenset({"moscow", "nizhny"}): 4.0,
@@ -240,7 +233,7 @@ RAIL_HOURS_OVERRIDE = {
 }
 
 
-from .data_extra import EXTRA_CITIES, EXTRA_RAIL_HOURS  # noqa: E402  (data_extra импортирует City и Hub отсюда)
+from .data_extra import EXTRA_CITIES, EXTRA_RAIL_HOURS
 
 CITIES.update({c.id: c for c in EXTRA_CITIES})
 RAIL_HOURS_OVERRIDE.update(EXTRA_RAIL_HOURS)

@@ -1,8 +1,3 @@
-"""Обращения в поддержку: пользователь пишет из интерфейса, сотрудник отвечает на /support-admin.
-
-Хранятся в той же базе, что и поездки. Браузер держит копию своих обращений и при синхронизации
-возвращает их, если сервер их не знает.
-"""
 from __future__ import annotations
 
 import json
@@ -69,12 +64,12 @@ def all_tickets() -> list[Ticket]:
 
 def create(user_id: str, topic: str, text: str, contact: str | None, trip_id: str | None) -> Ticket:
     tid = "WS-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    return save(Ticket(id=tid, user_id=user_id, topic=topic, contact=contact or None, trip_id=trip_id,  # type: ignore[arg-type]
+    return save(Ticket(id=tid, user_id=user_id, topic=topic, contact=contact or None, trip_id=trip_id,
                        created_at=_now(), messages=[SupportMessage(author="user", text=text, at=_now())]))
 
 
 def add_message(t: Ticket, author: str, text: str) -> Ticket:
-    t.messages.append(SupportMessage(author=author, text=text, at=_now()))  # type: ignore[arg-type]
+    t.messages.append(SupportMessage(author=author, text=text, at=_now()))
     t.status = "answered" if author == "support" else "open"
     return save(t)
 

@@ -1,4 +1,3 @@
-"""Подбор транспорта туда-обратно. Реальные цены — только из Travelpayouts, остальное помечено."""
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
@@ -23,7 +22,6 @@ def flight_hours(a: City, b: City) -> float:
 
 
 def door_to_door(mode: str, hours: float) -> float:
-    # самолёт: дорога в аэропорт, регистрация, получение багажа; поезд: дорога на вокзал
     return round(hours + (3.0 if mode == "plane" else 1.0), 1)
 
 
@@ -45,7 +43,6 @@ def _train_option(o: City, d: City, start: date, end: date, p: TripParams, hours
         name, out_time, back_time, carrier = "Дневной поезд", "08:15", "15:30", "ФПК"
         per_dir = round((1200 + dist * 2.0) / 100) * 100
     dur = round(hours * 60)
-    # прибытие — в день начала поездки; ночной поезд выезжает накануне
     depart_out = _dt(start - timedelta(days=1) if night else start, out_time)
     arrive_out = depart_out + timedelta(minutes=dur)
     depart_back = _dt(end, back_time)
@@ -130,14 +127,14 @@ def _flight_estimate(o: City, d: City, start: date, end: date, p: TripParams) ->
 
 
 def search_transport(p: TripParams) -> list[TransportOption]:
-    o, d = CITIES[p.origin], CITIES[p.destination]  # type: ignore[index]
-    start = date.fromisoformat(p.start_date)  # type: ignore[arg-type]
+    o, d = CITIES[p.origin], CITIES[p.destination]
+    start = date.fromisoformat(p.start_date)
     end = start + timedelta(days=p.nights or 0)
     options: list[TransportOption] = []
     if (rh := rail_hours(o, d)) is not None and rh <= 30:
         options.append(_train_option(o, d, start, end, p, rh, "a"))
         options.append(_train_option(o, d, start, end, p, rh, "b"))
-    if (o.has_airport and d.has_airport) or not options:  # без аэропорта самолёт — только если поезда нет совсем
+    if (o.has_airport and d.has_airport) or not options:
         rows = integrations.flight_prices(o.iata, d.iata, start, end)
         api = _flight_from_api(o, d, start, end, p, rows) if rows else []
         options.extend(api or [_flight_estimate(o, d, start, end, p)])

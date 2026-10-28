@@ -1,6 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-/* Единый набор линейных иконок: сетка 24, линия 1.7, скруглённые концы. */
 const P: Record<string, ReactNode> = {
   search: <><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></>,
   hotel: <><path d="M3.5 20V8.5l8.5-4 8.5 4V20" /><path d="M8 20v-5h8v5M8 11h.01M12 11h.01M16 11h.01" /></>,
@@ -49,7 +48,6 @@ export function Icon({ name, size = 20, className = "" }: { name: IconName; size
   );
 }
 
-/** Стеклянная иконка-кнопка: маленький объект из стекла с символом внутри. */
 export function GlassIcon({ name, label, active, size = "md", className = "", ...rest }: {
   name: IconName; label: string; active?: boolean; size?: "sm" | "md" | "lg";
 } & ButtonHTMLAttributes<HTMLButtonElement>) {

@@ -17,7 +17,6 @@ export function Why({ e }: { e: Explanation }) {
   );
 }
 
-/** Заголовок раздела: подложка из стекла, чтобы надпись читалась на любом кадре видео. */
 export function SectionTitle({ icon, title, hint }: { icon: IconName; title: string; hint?: string }) {
   return (
     <div className="section-title">
@@ -180,8 +179,6 @@ function BudgetBar({ trip }: { trip: Trip }) {
   );
 }
 
-
-/** В бюджет не поместился ни один вариант: план не показываем, предлагаем, что поменять. */
 function NotFound({ gap, city, busy, onSend }: {
   gap: NonNullable<Trip["budget_gap"]>; city: string; busy: boolean; onSend: (text: string) => void;
 }) {

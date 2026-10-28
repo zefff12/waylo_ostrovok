@@ -10,7 +10,6 @@ const CANCEL = { free: "бесплатная отмена", partial: "отмен
 type Sort = "score" | "price" | "distance" | "rating";
 const SORT_LABEL: Record<Sort, string> = { score: "Рекомендуем", price: "Дешевле", distance: "Ближе к прогулкам", rating: "Рейтинг" };
 
-// у вымышленных демо-отелей facts пустой — тогда всё в них демо
 export const fact = (o: Hotel, field: string) => o.facts?.[field] ?? o.kind;
 
 type Filters = { freeCancel: boolean; breakfast: boolean; pets: boolean; kids: boolean; maxNight: number | null };
@@ -20,7 +19,6 @@ function loadFavs(): string[] {
   try { return JSON.parse(localStorage.getItem("waylo_favs") ?? "[]"); } catch { return []; }
 }
 
-/** Фрагмент карты OSM вокруг отеля 2×2 тайла, отель — в центре миниатюры. */
 function Thumb({ h }: { h: Hotel }) {
   const z = 16, n = 2 ** z;
   const fx = (h.lon + 180) / 360 * n;
@@ -51,7 +49,7 @@ export function HotelList({ hotels, selectedId, busy, onSelect, pets, kids }: {
   const [onlyFavs, setOnlyFavs] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
 
-  useEffect(() => { try { localStorage.setItem("waylo_favs", JSON.stringify(favs)); } catch { /* приватный режим */ } }, [favs]);
+  useEffect(() => { try { localStorage.setItem("waylo_favs", JSON.stringify(favs)); } catch {} }, [favs]);
   useEffect(() => {
     if (!sheet) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSheet(false); };
@@ -153,7 +151,7 @@ export function HotelList({ hotels, selectedId, busy, onSelect, pets, kids }: {
         </div>
       )}
 
-      {sheet && createPortal(  // поверх шапки и чата: у списка свой контекст наложения
+      {sheet && createPortal(
         <div className="sheet-wrap" onClick={() => setSheet(false)}>
           <div className="sheet glass-modal" role="dialog" aria-modal="true" aria-label="Фильтры отелей" onClick={(e) => e.stopPropagation()}>
             <div className="sheet-grip" />

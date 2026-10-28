@@ -1,8 +1,3 @@
-"""Подключение к базе: PostgreSQL, если задан DATABASE_URL, иначе локальный файл SQLite.
-
-Запросы пишутся один раз с плейсхолдером «?»; для PostgreSQL он заменяется на «%s».
-Upsert через INSERT … ON CONFLICT … DO UPDATE одинаково работает в обеих СУБД.
-"""
 from __future__ import annotations
 
 import os
@@ -26,10 +21,9 @@ SCHEMA = [
     "CREATE INDEX IF NOT EXISTS trips_user ON trips (user_id)",
     "CREATE INDEX IF NOT EXISTS guests_account ON guests (account_id)",
 ]
-# старые локальные базы SQLite создавались без колонки updated
 MIGRATIONS = ["ALTER TABLE trips ADD COLUMN updated DOUBLE PRECISION", "ALTER TABLE support ADD COLUMN updated DOUBLE PRECISION"]
 
-_lock = threading.RLock()  # вложенные connect() в одном потоке не должны блокировать друг друга
+_lock = threading.RLock()
 _ready = False
 
 
@@ -53,11 +47,11 @@ class _Conn:
 
 def _open() -> Any:
     if PG:
-        import psycopg  # только когда нужна PostgreSQL
+        import psycopg
 
         return psycopg.connect(DATABASE_URL, autocommit=True, connect_timeout=10)
     c = sqlite3.connect(SQLITE_PATH)
-    c.isolation_level = None  # автокоммит, как у PostgreSQL выше
+    c.isolation_level = None
     return c
 
 
@@ -70,7 +64,7 @@ def _init(c: _Conn) -> None:
             try:
                 c.execute(m)
             except sqlite3.OperationalError:
-                pass  # колонка уже есть
+                pass
     _ready = True
 
 
@@ -86,7 +80,7 @@ def connect() -> Iterator[_Conn]:
         if PG:
             yield c
         else:
-            with _lock:  # SQLite не любит одновременную запись из нескольких потоков
+            with _lock:
                 yield c
     finally:
         raw.close()

@@ -1,7 +1,5 @@
 import type { Account, ChatMsg, Health, Me, SavedGuest, Ticket, Trip } from "./types";
 
-// Ход агента с несколькими вызовами LLM укладывается в минуту-две; дольше — считаем, что запрос потерян,
-// чтобы интерфейс не висел в «агент думает» (например, после ухода во вкладку и возврата).
 const TIMEOUT_MS = 150_000;
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -16,20 +14,19 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     let detail = `${res.status}`;
-    try { detail = (await res.json()).detail ?? detail; } catch { /* тело не JSON */ }
+    try { detail = (await res.json()).detail ?? detail; } catch {}
     throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
   }
   return res.json() as Promise<T>;
 }
 
-// Токен сессии профиля: хранится в браузере, уходит в заголовке Authorization.
 const AUTH = "waylo_auth_v1";
 export type Auth = { token: string; account: Account };
 export function loadAuth(): Auth | null {
   try { return JSON.parse(localStorage.getItem(AUTH) ?? "null"); } catch { return null; }
 }
 export function saveAuth(a: Auth | null) {
-  try { if (a) localStorage.setItem(AUTH, JSON.stringify(a)); else localStorage.removeItem(AUTH); } catch { /* приватный режим */ }
+  try { if (a) localStorage.setItem(AUTH, JSON.stringify(a)); else localStorage.removeItem(AUTH); } catch {}
 }
 const authHeaders = (): Record<string, string> => {
   const a = loadAuth();
@@ -42,7 +39,6 @@ export type TripResponse = { trip: Trip; chat: ChatMsg[] };
 export type ChatResponse = TripResponse & { reply: string; agent: string; elapsed_ms: number };
 
 let healthOnceP: Promise<Health> | null = null;
-/** /api/health один раз за сессию — для компонентов, которым нужны настройки (ключ карты). */
 export const healthOnce = () => (healthOnceP ??= api.health());
 
 export const api = {
@@ -76,7 +72,6 @@ export const api = {
   extras: (id: string, kind: string, card?: string) => post<TripResponse>(`/api/trips/${id}/extras`, { kind, card }),
 };
 
-/** claude-haiku-5-5 → «Claude Haiku 5.5» */
 export const modelLabel = (id: string) =>
   id.replace(/^claude-/, "Claude ").replace(/-(\d+)-(\d+)$/, " $1.$2").replace(/-(\d+)$/, " $1")
     .replace(/\b([a-z])/g, (c) => c.toUpperCase());

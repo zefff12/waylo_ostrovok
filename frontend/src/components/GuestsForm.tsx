@@ -2,11 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { SavedGuest } from "../types";
 import { Icon } from "./Icons";
 
-/**
- * Данные путешественников для брони: ФИО, дата рождения и документ.
- * Документ выбирается по возрасту на дату поездки: до 14 лет — свидетельство о рождении,
- * с 14 лет — паспорт РФ. Гостей из профиля можно подставить одним нажатием.
- */
 export type GuestDraft = { last: string; first: string; middle: string; birth: string; doc: string };
 export type GuestOut = { full_name: string; birth_date: string; document: string; child: boolean };
 
@@ -33,9 +28,8 @@ export function ageAt(birth: string, at: string): number {
   return a;
 }
 
-/** Документ по возрасту: до 14 лет — свидетельство о рождении, с 14 — паспорт РФ. */
 export function docFor(birth: string, at: string, child = false): DocKind {
-  if (!birth) return child ? BIRTH : PASSPORT;  // пока дата не указана — самый вероятный документ
+  if (!birth) return child ? BIRTH : PASSPORT;
   return ageAt(birth, at) < 14 ? BIRTH : PASSPORT;
 }
 
@@ -74,16 +68,15 @@ export function GuestsForm({ adults, kids, tripStart, saved, onValid }: {
     onValid(ok ? guests.map((g, i) => ({
       full_name: [g.last, g.first, g.middle].map((x) => x.trim()).filter(Boolean).join(" "),
       birth_date: g.birth, child: i >= adults,
-      document: `${drafts[i].doc_kind} •••• ${g.doc.replace(/\s/g, "").slice(-4)}`,  // в заказ — только последние цифры
+      document: `${drafts[i].doc_kind} •••• ${g.doc.replace(/\s/g, "").slice(-4)}`,
     })) : null, drafts, remember);
-  }, [guests, remember, tripStart]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [guests, remember, tripStart]);
 
   const set = (i: number, k: keyof GuestDraft, v: string) =>
     setGuests((gs) => gs.map((g, j) => (j === i ? { ...g, [k]: v } : g)));
   const show = (i: number, k: string) => touched[`${i}.${k}`];
   const touch = (i: number, k: string) => setTouched((t) => ({ ...t, [`${i}.${k}`]: true }));
 
-  // подставить гостя из профиля: документ — только если его тип подходит возрасту на дату поездки
   const pick = (i: number, s: SavedGuest) => {
     const g = { last: s.last, first: s.first, middle: s.middle, birth: s.birth, doc: "" };
     const need = docKind(g, tripStart, i >= adults);
@@ -98,7 +91,6 @@ export function GuestsForm({ adults, kids, tripStart, saved, onValid }: {
       {guests.map((g, i) => {
         const e = errorsOf(g, i);
         const k = docKind(g, tripStart, i >= adults);
-        // взрослому месту — только взрослые на дату поездки, детскому — только дети
         const options = saved.filter((s) => !used.has(`${s.last}|${s.first}|${s.birth}`)
           && (ageAt(s.birth, tripStart) >= 18) === (i < adults));
         const field = (key: keyof GuestDraft, label: string, extra: Record<string, unknown> = {}) => (

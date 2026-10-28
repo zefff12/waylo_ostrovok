@@ -1,4 +1,3 @@
-"""Бюджет считается только кодом из структурированных позиций."""
 from __future__ import annotations
 
 from .data import CITIES
@@ -10,7 +9,7 @@ MEAL_DISCOUNT = {"none": 0.0, "breakfast": 0.2, "half_board": 0.55}
 
 def transfer_cost(trip: Trip) -> tuple[int, float]:
     t, h = trip.transport(), trip.hotel()
-    city = CITIES[trip.params.destination]  # type: ignore[index]
+    city = CITIES[trip.params.destination]
     if not (t and h):
         return 0, 0
     hub = city.station if t.mode == "train" and city.station else city.airport
@@ -21,7 +20,7 @@ def transfer_cost(trip: Trip) -> tuple[int, float]:
 
 def calc(trip: Trip) -> Budget:
     p = trip.params
-    city = CITIES[p.destination]  # type: ignore[index]
+    city = CITIES[p.destination]
     items: list[BudgetItem] = []
     t, h = trip.transport(), trip.hotel()
     days = (p.nights or 0) + 1
@@ -35,7 +34,7 @@ def calc(trip: Trip) -> Budget:
                                 note=f"{h.price_per_night:,} ₽ × {h.nights} ноч.".replace(",", " ")))
     tr, dist = transfer_cost(trip)
     extras = [e for e in trip.budget.items if e.category == "extras"]
-    booked = any(e.id == "transfer_booking" for e in extras)  # трансфер до отеля оплачен — такси остаётся только обратно
+    booked = any(e.id == "transfer_booking" for e in extras)
     if tr:
         items.append(BudgetItem(id="transfer", category="transfer",
                                 title=f"Трансфер {'обратно' if booked else 'туда и обратно'} (такси, {dist:.0f} км)",
@@ -55,7 +54,7 @@ def calc(trip: Trip) -> Budget:
                                 amount=local, kind="estimate", source="Цена поездки × число поездок"))
     items.extend(extras)
     total = sum(i.amount for i in items)
-    planned = total - sum(e.amount for e in extras)  # доп. услуги после покупки покупаются сознательно сверх плана
+    planned = total - sum(e.amount for e in extras)
     b = Budget(items=items, total=total, limit=p.budget_rub,
                assumptions=["Питание и транспорт по городу — оценки", "Отели реальные (OpenStreetMap), цена проживания — оценка"])
     if p.budget_rub and planned > p.budget_rub:

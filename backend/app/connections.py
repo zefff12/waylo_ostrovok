@@ -1,4 +1,3 @@
-"""Проверка состыковок: прибытие, заселение, трансфер, выезд и отправление."""
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
@@ -14,7 +13,7 @@ def check(trip: Trip) -> list[ConnectionCheck]:
     t, h = trip.transport(), trip.hotel()
     if not (t and h and p.start_date and p.nights is not None):
         return out
-    city = CITIES[p.destination]  # type: ignore[index]
+    city = CITIES[p.destination]
     hub = city.station if t.mode == "train" and city.station else city.airport
     transfer = taxi_minutes(km(hub.lat, hub.lon, h.lat, h.lon))
     start = date.fromisoformat(p.start_date)

@@ -1,8 +1,3 @@
-"""Общие инструменты агента: системная инструкция, схемы инструментов и их исполнение.
-
-Схемы описаны в формате Anthropic (input_schema); агенты других провайдеров конвертируют их у себя.
-Вызывают одни и те же функции planner, поэтому расчёты не зависят от модели.
-"""
 from __future__ import annotations
 
 import contextvars
@@ -149,22 +144,13 @@ TOOLS = [
 ]
 
 
-# Факты, которые парсер надёжно извлёк из текущего сообщения. Модель иногда путает дни с ночами
-# или теряет бюджет, поэтому для этих полей значение парсера важнее аргумента модели.
 ANCHORED = ("destination", "origin", "nights", "start_date", "month", "budget_rub", "adults", "children", "pets",
             "budget_none", "delegate")
-# пожелания («море», «тепло», «недорого») и интересы модель тоже теряет — их объединяем с её аргументами
 LISTS = ("wishes", "interests")
 _turn_facts: contextvars.ContextVar[dict] = contextvars.ContextVar("turn_facts", default={})
 
 
 def begin_turn(trip: Trip, text: str) -> tuple[str | None, str]:
-    """Подготовка хода до вызова модели. Возвращает (готовый ответ без модели, пометку для модели).
-
-    Пока агент уточняет детали, вопросы задаёт планировщик: модель на этом этапе путала ответы
-    («Нижний Новгород» принимала за новое направление) и уходила в бесконечный цикл инструментов.
-    Смена бюджета в готовом плане тоже применяется сразу, не дожидаясь, вызовет ли модель инструмент.
-    """
     facts = {k: v for k, v in parse_answer(text, trip).items() if k in ANCHORED or (k in LISTS and v)}
     _turn_facts.set(facts)
     p = trip.params
@@ -181,7 +167,7 @@ def begin_turn(trip: Trip, text: str) -> tuple[str | None, str]:
             planner.set_constraints(trip, nights=cmd["nights"])
             note += f" Поездка уже изменена на {cmd['nights']} ноч., план пересобран."
         return None, note
-    if p.destination and trip.status == "need_info":  # идёт уточнение: применяем ответ и спрашиваем остальное сами
+    if p.destination and trip.status == "need_info":
         planner.apply_params(trip, _merge_facts({}, facts), known=list(facts))
         if planner.clarify(trip):
             return planner.clarify_text(trip), ""
@@ -194,12 +180,10 @@ def begin_turn(trip: Trip, text: str) -> tuple[str | None, str]:
 
 
 def clarification_reply(trip: Trip) -> str | None:
-    """Если после хода модели всё ещё не хватает данных — вопрос от планировщика."""
     return planner.clarify_text(trip) if not trip.days and planner.clarify(trip) else None
 
 
 def fallback_reply(trip: Trip) -> str:
-    """Модель сделала слишком много шагов: отвечаем по фактическому состоянию поездки, а не заглушкой."""
     from .agent_offline import describe_plan
     if (q := clarification_reply(trip)):
         return q
@@ -217,7 +201,6 @@ def _merge_facts(args: dict, facts: dict) -> dict:
 
 
 def _within_budget(trip: Trip, name: str, args: dict) -> dict:
-    """Выбор модели не должен выводить поездку за бюджет, если до этого она в него укладывалась."""
     backup = trip.model_copy(deep=True)
     r = planner.select_transport(trip, args["option_id"]) if name == "select_transport" else planner.select_hotel(trip, args["hotel_id"])
     if "error" not in r and trip.budget.over_by and not backup.budget.over_by:
@@ -232,16 +215,13 @@ def execute(trip: Trip, name: str, args: dict) -> dict:
     if name == "update_trip_params":
         facts = _turn_facts.get()
         dropped = []
-        # город, которого нет в сообщении и среди предложенных вариантов, модель придумала сама
         offered = {o.city_id for o in trip.destination_options}
         if args.get("destination") and "destination" not in facts and args["destination"] not in offered \
                 and not trip.params.destination:
             dropped.append("destination")
-        # «недорого» — не сумма; бюджет берём только из чисел в сообщении
         if args.get("budget_rub") and "budget_rub" not in facts:
             dropped.append("budget_rub")
         args = _merge_facts({k: v for k, v in args.items() if k not in dropped}, facts)
-        # «названо пользователем» — только то, что парсер нашёл в его словах; догадки модели не считаются
         assumptions = planner.apply_params(trip, args, known=[k for k in facts if k in args])
         planner.log_tool(trip, name, ", ".join(f"{k}={v}" for k, v in args.items())[:160])
         out = {"params": trip.params.model_dump(exclude={"assumptions"}), "new_assumptions": assumptions,
@@ -252,10 +232,9 @@ def execute(trip: Trip, name: str, args: dict) -> dict:
         return out
     if name == "suggest_destinations":
         if facts := {k: v for k, v in _turn_facts.get().items() if k != "destination"}:
-            planner.apply_params(trip, _merge_facts({}, facts))  # модель могла сразу позвать подбор, не передав пожелания
+            planner.apply_params(trip, _merge_facts({}, facts))
         return {"options": planner.suggest_destinations(trip)}
     if name == "plan_trip":
-        # ответ на уточнение модель может не передать в update_trip_params — берём факты из сообщения сами
         if facts := {k: v for k, v in _turn_facts.get().items() if k != "destination" or not trip.params.destination}:
             planner.apply_params(trip, _merge_facts({}, facts), known=list(facts))
         if qs := planner.clarify(trip):
