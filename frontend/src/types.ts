@@ -70,3 +70,9 @@ export interface Health {
   ok: boolean; agent: "claude" | "gigachat" | "offline"; model: string | null; provider_label: string | null;
   integrations: Record<string, string>; cities: { id: string; name: string; country: string; tags: string[] }[]; yandex_js_key: string | null; home_youtube_id: string | null;
 }
+
+export interface SupportMessage { author: "user" | "support"; text: string; at: string }
+export interface Ticket {
+  id: string; user_id: string; topic: "trip" | "payment" | "bug" | "other"; contact: string | null; trip_id: string | null;
+  status: "open" | "answered" | "closed"; created_at: string; messages: SupportMessage[];
+}

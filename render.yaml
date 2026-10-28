@@ -17,3 +17,6 @@ services:
         sync: false
       - key: YANDEX_JS_API_KEY
         sync: false
+      # ключ для /support-admin: Render сгенерирует его сам, посмотреть — Environment в панели сервиса
+      - key: SUPPORT_ADMIN_TOKEN
+        generateValue: true

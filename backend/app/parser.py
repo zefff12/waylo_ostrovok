@@ -67,10 +67,17 @@ def parse_request(text: str) -> dict:
                 today = date.today()
                 year = today.year + ((i + 1) < today.month)
                 try:
-                    s = date(year, i + 1, int(m.group(1)))
-                    out["start_date"] = s.isoformat()
-                    if m.group(2):
-                        out["nights"] = max(1, int(m.group(2)) - int(m.group(1)))
+                    d1, d2 = int(m.group(1)), int(m.group(2) or 0)
+                    if m.group(2) and d2 < d1:  # «с 30 по 4 ноября» — начало в предыдущем месяце
+                        e = date(year, i + 1, d2)
+                        pm = 12 if i == 0 else i
+                        s = date(year - (i == 0), pm, d1)
+                        out.update(month=pm, start_date=s.isoformat(), nights=(e - s).days)
+                    else:
+                        s = date(year, i + 1, d1)
+                        out["start_date"] = s.isoformat()
+                        if m.group(2):
+                            out["nights"] = max(1, d2 - d1)
                 except ValueError:
                     pass
             break
@@ -132,7 +139,7 @@ def parse_request(text: str) -> dict:
     if re.search(r"с собак|с псом|с котом|с кошкой|с питомц|с животн|собака", low):
         out["pets"] = True
 
-    if re.search(r"без (ограничени\w* )?бюджет|бюджет\w* (нет|не важ|не огранич|любой)|нет бюджет|не ограничен", low):
+    if re.search(r"без (ограничени\w* )?бюджет|бюджет\w* (нет|не важ|не огранич|неогранич|любой)|нет бюджет|не ограничен|неограниченн\w* бюджет", low):
         out["budget_none"] = True
     if re.search(r"на (ваше|твое|твоё) усмотрени|неважно|не важно|без разницы|все равно|решай сам|как удобн|любые", low):
         out["delegate"] = True
@@ -163,6 +170,31 @@ def parse_request(text: str) -> dict:
         out["transport_pref"] = "plane"
     if re.search(r"отмен", low):
         out["priority"] = "cancellation"
+    return out
+
+
+def parse_answer(text: str, trip) -> dict:
+    """Разбор с учётом того, о чём агент спрашивал. Ответ «Нижний Новгород. 60000» на вопросы
+    «откуда поедете?» и «какой бюджет?» — это город отправления и бюджет, а не новое направление."""
+    out = parse_request(text)
+    p = trip.params
+    if not p.destination or trip.days:
+        return out
+    low = text.lower().replace("ё", "е")
+    wants_new = re.search(r"\b(хочу|хотим|поехать|поедем|полет\w*|лететь|махн\w*|лучше|передумал\w*)\b|\b(в|во)\s+[а-я]", low)
+    if (out.get("destination") and out["destination"] != p.destination and "origin" not in out
+            and "origin" not in p.known and not wants_new):
+        out["origin"] = out.pop("destination")
+    if out.get("destination") == p.destination and "origin" not in out and "origin" not in p.known \
+            and not wants_new and find_city(low) and CITIES[p.destination].name.lower()[:4] not in low:
+        out.pop("destination")
+    if "budget_rub" not in out and "budget_rub" not in p.known:
+        # голое число в ответе на вопрос о бюджете: «60000», «60 000», «100к»
+        for m in re.finditer(r"(?<![\d.:/])(\d{1,3}(?:[  ]?\d{3})+|\d{4,7})(?![\d.:/])", text):
+            val = int(re.sub(r"\D", "", m.group(1)))
+            if 3000 <= val <= 5_000_000:
+                out["budget_rub"] = val
+                break
     return out
 
 
@@ -205,6 +237,8 @@ def parse_command(text: str) -> list[tuple[str, dict]]:
             val *= 1000
         if val >= 3000:
             cmds.append(("set_constraints", {"budget_rub": val}))
+    if re.search(r"без (ограничени\w* )?бюджет|бюджет\w* (нет|не важ|не огранич|неогранич|любой)|нет бюджет|неограниченн\w* бюджет", low):
+        cmds.append(("set_constraints", {"clear_budget": True}))
     if re.search(r"дешевл|сэконом|подешевле|уложи\w* в бюджет|бюджет меньше|слишком дорого", low) and "отел" not in low:
         cmds.append(("make_cheaper", {}))
     if re.search(r"с нами (едет|поедет)|берем с собой|с собак|собака|с котом|с питомц", low) and not re.search(r"без собак", low):

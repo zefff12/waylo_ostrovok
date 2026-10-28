@@ -12,7 +12,7 @@ import os
 import anthropic
 
 from . import planner
-from .agent_tools import SYSTEM, TOOLS, begin_turn, execute
+from .agent_tools import SYSTEM, TOOLS, begin_turn, clarification_reply, execute, fallback_reply
 from .schemas import Trip
 
 log = logging.getLogger("waylo.agent")
@@ -37,7 +37,12 @@ def handle(trip: Trip, text: str, messages: list, profile: dict | None = None) -
         content += f"\n\n[Память о прошлых поездках пользователя: {json.dumps(profile, ensure_ascii=False)}. Учитывай, если уместно, и скажи об этом.]"
     if trip.days:
         content += f"\n\n[Состояние: поездка уже собрана, город {trip.params.destination}, {len(trip.days)} дн. Меняй точечно.]"
-    begin_turn(text)
+    early, note = begin_turn(trip, text)
+    if early:  # уточнение идёт без модели: вопросы задаёт планировщик
+        messages += [{"role": "user", "content": content}, {"role": "assistant", "content": early}]
+        return early
+    if note:
+        content += f"\n\n[{note}]"
     messages.append({"role": "user", "content": content})
     for _ in range(MAX_STEPS):
         params = dict(model=MODEL, max_tokens=16000, system=SYSTEM, tools=TOOLS, messages=messages,
@@ -64,4 +69,7 @@ def handle(trip: Trip, text: str, messages: list, profile: dict | None = None) -
                 planner.log_tool(trip, tu.name, f"ошибка: {e}", ok=False)
                 results.append({"type": "tool_result", "tool_use_id": tu.id, "content": f"Ошибка инструмента: {e}", "is_error": True})
         messages.append({"role": "user", "content": results})
-    return "Я сделал много шагов подряд и остановился. Посмотрите план справа и уточните, что поменять."
+        if (q := clarification_reply(trip)) and any("need_clarification" in r["content"] for r in results):
+            messages.append({"role": "assistant", "content": q})
+            return q
+    return fallback_reply(trip)

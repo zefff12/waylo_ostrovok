@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import random
+import secrets
 import re
 import string
 import time
@@ -17,13 +18,13 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException  # noqa: E402
+from fastapi import FastAPI, Header, HTTPException  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
-from . import agent_gigachat, agent_llm, agent_offline, connections, integrations, planner, store  # noqa: E402
+from . import agent_gigachat, agent_llm, agent_offline, connections, integrations, planner, store, support  # noqa: E402
 from .data import CITIES  # noqa: E402
 from .schemas import Guest, Order, Trip  # noqa: E402
 
@@ -190,6 +191,82 @@ def restore_trip(body: RestoreIn) -> dict:
         return {"trip": got[0], "chat": got[2]}
     store.save_trip(body.trip, {}, body.chat[-200:])
     return {"trip": body.trip, "chat": body.chat[-200:]}
+
+
+class SupportIn(BaseModel):
+    user_id: str = Field(min_length=1, max_length=40)
+    topic: str = Field(pattern="^(trip|payment|bug|other)$")
+    text: str = Field(min_length=10, max_length=4000)
+    contact: str | None = Field(default=None, max_length=120)
+    trip_id: str | None = Field(default=None, max_length=40)
+
+
+class SupportReplyIn(BaseModel):
+    user_id: str | None = None
+    text: str = Field(min_length=1, max_length=4000)
+
+
+class SupportSyncIn(BaseModel):
+    user_id: str = Field(min_length=1, max_length=40)
+    tickets: list[support.Ticket] = Field(default_factory=list, max_length=50)
+
+
+@app.post("/api/support")
+def support_create(body: SupportIn) -> dict:
+    t = support.create(body.user_id, body.topic, body.text.strip(), (body.contact or "").strip(), body.trip_id)
+    log.info("support ticket %s (%s)", t.id, t.topic)
+    return t.model_dump()
+
+
+@app.post("/api/support/sync")
+def support_sync(body: SupportSyncIn) -> dict:
+    """Обращения пользователя; копии из браузера, которых сервер не знает, восстанавливаются."""
+    known = {t.id for t in support.by_user(body.user_id)}
+    for t in body.tickets:
+        if t.id not in known and t.user_id == body.user_id:
+            support.save(t)
+    return {"tickets": support.dump(support.by_user(body.user_id))}
+
+
+@app.post("/api/support/{ticket_id}/messages")
+def support_user_message(ticket_id: str, body: SupportReplyIn) -> dict:
+    t = support.get(ticket_id)
+    if not t or t.user_id != body.user_id:
+        raise HTTPException(404, "Обращение не найдено")
+    return support.add_message(t, "user", body.text.strip()).model_dump()
+
+
+def _admin(token: str | None) -> None:
+    expected = support.admin_token()
+    if not expected:
+        raise HTTPException(503, "Панель поддержки не настроена: задайте SUPPORT_ADMIN_TOKEN в переменных окружения")
+    if not token or not secrets.compare_digest(token, expected):
+        raise HTTPException(401, "Неверный ключ доступа")
+
+
+@app.get("/api/support/admin")
+def support_admin_list(x_admin_token: str | None = Header(default=None)) -> dict:
+    _admin(x_admin_token)
+    return {"tickets": support.dump(support.all_tickets())}
+
+
+@app.post("/api/support/admin/{ticket_id}/reply")
+def support_admin_reply(ticket_id: str, body: SupportReplyIn, x_admin_token: str | None = Header(default=None)) -> dict:
+    _admin(x_admin_token)
+    t = support.get(ticket_id)
+    if not t:
+        raise HTTPException(404, "Обращение не найдено")
+    return support.add_message(t, "support", body.text.strip()).model_dump()
+
+
+@app.post("/api/support/admin/{ticket_id}/close")
+def support_admin_close(ticket_id: str, x_admin_token: str | None = Header(default=None)) -> dict:
+    _admin(x_admin_token)
+    t = support.get(ticket_id)
+    if not t:
+        raise HTTPException(404, "Обращение не найдено")
+    t.status = "closed"
+    return support.save(t).model_dump()
 
 
 @app.get("/api/users/{user_id}/latest")

@@ -1,7 +1,19 @@
-import type { ChatMsg, Health, Trip } from "./types";
+import type { ChatMsg, Health, Ticket, Trip } from "./types";
+
+// Ход агента с несколькими вызовами LLM укладывается в минуту-две; дольше — считаем, что запрос потерян,
+// чтобы интерфейс не висел в «агент думает» (например, после ухода во вкладку и возврата).
+const TIMEOUT_MS = 150_000;
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...init });
+  let res: Response;
+  try {
+    res = await fetch(path, { headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(TIMEOUT_MS), ...init });
+  } catch (e) {
+    const name = (e as Error).name;
+    throw new Error(name === "TimeoutError" || name === "AbortError"
+      ? "Агент не ответил вовремя. План сохранён — попробуйте отправить сообщение ещё раз."
+      : "Нет связи с сервером Waylo. Проверьте интернет и попробуйте ещё раз.");
+  }
   if (!res.ok) {
     let detail = `${res.status}`;
     try { detail = (await res.json()).detail ?? detail; } catch { /* тело не JSON */ }
@@ -33,6 +45,14 @@ export const api = {
     post<TripResponse>(`/api/trips/${id}/days/${day}`, { action, ...extra }),
   checkout: (id: string, guests: unknown[], card?: string) => post<TripResponse>(`/api/trips/${id}/checkout`, { guests, card }),
   restore: (trip: Trip, chat: ChatMsg[]) => post<TripResponse>("/api/trips/restore", { trip, chat }),
+  support: (b: { user_id: string; topic: string; text: string; contact?: string; trip_id?: string | null }) => post<Ticket>("/api/support", b),
+  supportSync: (user_id: string, tickets: Ticket[]) => post<{ tickets: Ticket[] }>("/api/support/sync", { user_id, tickets }),
+  supportMessage: (id: string, user_id: string, text: string) => post<Ticket>(`/api/support/${id}/messages`, { user_id, text }),
+  supportAdmin: (token: string) => call<{ tickets: Ticket[] }>("/api/support/admin", { headers: { "X-Admin-Token": token } }),
+  supportReply: (token: string, id: string, text: string) => call<Ticket>(`/api/support/admin/${id}/reply`,
+    { method: "POST", body: JSON.stringify({ text }), headers: { "Content-Type": "application/json", "X-Admin-Token": token } }),
+  supportClose: (token: string, id: string) => call<Ticket>(`/api/support/admin/${id}/close`,
+    { method: "POST", headers: { "X-Admin-Token": token } }),
   extras: (id: string, kind: string, card?: string) => post<TripResponse>(`/api/trips/${id}/extras`, { kind, card }),
 };
 

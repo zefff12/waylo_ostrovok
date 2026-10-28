@@ -9,7 +9,7 @@ import contextvars
 from datetime import date
 
 from . import planner, walks
-from .parser import parse_request
+from .parser import parse_answer, parse_request
 from .data import CITIES
 from .schemas import Trip
 
@@ -133,6 +133,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "pets": {"type": "boolean"}, "children": {"type": "integer"}, "budget_rub": {"type": "integer"},
+                "clear_budget": {"type": "boolean", "description": "true — пользователь снял ограничение бюджета"},
                 "adults": {"type": "integer"}, "nights": {"type": "integer"},
                 "priority": {"type": "string", "enum": ["balanced", "price", "location", "cancellation"]},
                 "walking": {"type": "string", "enum": ["normal", "low"]},
@@ -157,8 +158,50 @@ LISTS = ("wishes", "interests")
 _turn_facts: contextvars.ContextVar[dict] = contextvars.ContextVar("turn_facts", default={})
 
 
-def begin_turn(text: str) -> None:
-    _turn_facts.set({k: v for k, v in parse_request(text).items() if k in ANCHORED or (k in LISTS and v)})
+def begin_turn(trip: Trip, text: str) -> tuple[str | None, str]:
+    """Подготовка хода до вызова модели. Возвращает (готовый ответ без модели, пометку для модели).
+
+    Пока агент уточняет детали, вопросы задаёт планировщик: модель на этом этапе путала ответы
+    («Нижний Новгород» принимала за новое направление) и уходила в бесконечный цикл инструментов.
+    Смена бюджета в готовом плане тоже применяется сразу, не дожидаясь, вызовет ли модель инструмент.
+    """
+    facts = {k: v for k, v in parse_answer(text, trip).items() if k in ANCHORED or (k in LISTS and v)}
+    _turn_facts.set(facts)
+    p = trip.params
+    if trip.days:
+        note = ""
+        if facts.get("budget_none") and p.budget_rub:
+            planner.set_constraints(trip, clear_budget=True)
+            note = "Бюджет снят по просьбе пользователя — план уже пересобран без лимита."
+        elif facts.get("budget_rub") and facts["budget_rub"] != p.budget_rub:
+            planner.set_constraints(trip, budget_rub=facts["budget_rub"])
+            note = f"Новый бюджет {planner.rub(facts['budget_rub'])} уже применён, план пересобран."
+        return None, note
+    if p.destination and trip.status == "need_info":  # идёт уточнение: применяем ответ и спрашиваем остальное сами
+        planner.apply_params(trip, _merge_facts({}, facts), known=list(facts))
+        if planner.clarify(trip):
+            return planner.clarify_text(trip), ""
+        return None, "Пользователь ответил на все уточняющие вопросы — вызови plan_trip и расскажи о поездке."
+    if facts.get("destination") and not trip.destination_options:
+        planner.apply_params(trip, _merge_facts({}, facts), known=list(facts))
+        if planner.clarify(trip):
+            return planner.clarify_text(trip), ""
+    return None, ""
+
+
+def clarification_reply(trip: Trip) -> str | None:
+    """Если после хода модели всё ещё не хватает данных — вопрос от планировщика."""
+    return planner.clarify_text(trip) if not trip.days and planner.clarify(trip) else None
+
+
+def fallback_reply(trip: Trip) -> str:
+    """Модель сделала слишком много шагов: отвечаем по фактическому состоянию поездки, а не заглушкой."""
+    from .agent_offline import describe_plan
+    if (q := clarification_reply(trip)):
+        return q
+    if trip.days:
+        return describe_plan(trip, intro="Вот текущий план поездки:")
+    return "Не удалось разобрать запрос. Напишите, куда и когда хотите поехать, — например: «Казань с 12 по 15 декабря, из Москвы, двое взрослых»."
 
 
 def _merge_facts(args: dict, facts: dict) -> dict:
@@ -212,8 +255,7 @@ def execute(trip: Trip, name: str, args: dict) -> dict:
         if facts := {k: v for k, v in _turn_facts.get().items() if k != "destination" or not trip.params.destination}:
             planner.apply_params(trip, _merge_facts({}, facts), known=list(facts))
         if qs := planner.clarify(trip):
-            planner.clarify_text(trip)
-            return {"need_clarification": qs,
+            return {"need_clarification": qs, "text": planner.clarify_text(trip),
                     "instruction": "Не собирай поездку. Задай пользователю эти вопросы одним сообщением и дождись ответа."}
         return planner.plan_trip(trip)
     if name == "get_trip_summary":

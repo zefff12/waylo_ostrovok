@@ -9,6 +9,7 @@ import { Backdrop, sceneFor, SCENE_LABEL } from "./components/Backdrop";
 import { GlassIcon, Icon, type IconName } from "./components/Icons";
 import { Onboarding, Splash, introSeen } from "./components/Intro";
 import { Markdown } from "./components/Markdown";
+import { SupportSheet } from "./components/Support";
 
 const EXAMPLES = [
   "Хочу на пять дней в Санкт-Петербург в ноябре. Бюджет — 45 000 рублей на двоих. Любим красивые улицы, необычные кафе, музеи и атмосферные места для фотографий. Хотим жить недалеко от центра и не проводить весь отпуск в транспорте",
@@ -80,6 +81,7 @@ export default function App() {
   const [lastTrip, setLastTrip] = useState<string | null>(null);
   const [paused, setPaused] = useState(readPaused);
   const [chatOpen, setChatOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
   // ?intro — показать заставку и онбординг заново (удобно на презентации)
   const [intro, setIntro] = useState<"splash" | "onboarding" | null>(
     (introSeen() || saved?.trip) && !new URLSearchParams(location.search).has("intro") ? null : "splash");
@@ -110,8 +112,19 @@ export default function App() {
 
   async function run(fn: () => Promise<TripResponse>) {
     setBusy(true); setError(null);
-    try { apply(await fn()); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+    try { apply(await fn()); } catch (e) {
+      setError((e as Error).message);
+      // ответ мог не дойти, хотя сервер всё сделал: подтягиваем актуальное состояние поездки
+      if (trip?.id) api.trip(trip.id).then(apply).catch(() => undefined);
+    } finally { setBusy(false); }
   }
+
+  // вернулись на вкладку — сверяем поездку с сервером, чтобы не показывать устаревший план
+  useEffect(() => {
+    const onShow = () => { if (document.visibilityState === "visible" && trip?.id && !busy) api.trip(trip.id).then(apply).catch(() => undefined); };
+    document.addEventListener("visibilitychange", onShow);
+    return () => document.removeEventListener("visibilitychange", onShow);
+  }, [trip?.id, busy]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const send = (text: string) => {
     setChat((c) => [...c, { role: "user", text, at: new Date().toTimeString().slice(0, 5) }]);
@@ -121,6 +134,7 @@ export default function App() {
   const start = (text: string) => { setTab("trip"); setIntro(null); send(text); };
   const reset = () => { setTrip(null); setChat([]); setError(null); setChatOpen(false); };
   const splashDone = useCallback(() => setIntro("onboarding"), []);
+  const closeSupport = useCallback(() => setSupportOpen(false), []);
   const cityNames = useMemo(() => Object.fromEntries((health?.cities ?? []).map((c) => [c.id, c.name])), [health]);
   const abroad = (health?.cities.find((c) => c.id === trip?.params.destination)?.country ?? "Россия") !== "Россия";
   const home = !trip && !chat.length;
@@ -133,7 +147,8 @@ export default function App() {
       {home ? (
         <Home health={health} onStart={start} lastTrip={lastTrip}
           onOpenLast={() => lastTrip && run(() => api.trip(lastTrip))} mode={mode} setMode={setMode}
-          paused={paused} togglePause={togglePause} error={error} onHelp={() => setIntro("onboarding")} hidden={intro !== null} />
+          paused={paused} togglePause={togglePause} error={error} onHelp={() => setIntro("onboarding")} hidden={intro !== null}
+          onSupport={() => setSupportOpen(true)} />
       ) : (
         <div className="app">
           <header className="topbar glass-light">
@@ -148,6 +163,7 @@ export default function App() {
             </nav>
             <div className="topbar-end">
               <AgentStatus health={health} mode={mode} setMode={setMode} compact />
+              <GlassIcon name="support" label="Поддержка" onClick={() => setSupportOpen(true)} size="sm" />
               <GlassIcon name={paused ? "play" : "pause"} label={paused ? `Включить видео (${SCENE_LABEL[scene]})` : "Остановить фоновое видео"}
                 onClick={togglePause} size="sm" />
             </div>
@@ -186,6 +202,7 @@ export default function App() {
           </nav>
         </div>
       )}
+      {supportOpen && <SupportSheet user={user} tripId={trip?.id ?? null} onClose={closeSupport} />}
       {intro === "splash" && <Splash onDone={splashDone} />}
       {intro === "onboarding" && <Onboarding onFinish={() => setIntro(null)} onTry={start} />}
     </>
@@ -249,10 +266,10 @@ function Loading({ busy }: { busy: boolean }) {
   );
 }
 
-function Home({ health, onStart, lastTrip, onOpenLast, mode, setMode, paused, togglePause, error, onHelp, hidden }: {
+function Home({ health, onStart, lastTrip, onOpenLast, paused, togglePause, error, onHelp, hidden, onSupport }: {
   health: Health | null; onStart: (t: string) => void; lastTrip: string | null; onOpenLast: () => void;
   mode: "auto" | "offline"; setMode: (m: "auto" | "offline") => void; paused: boolean; togglePause: () => void;
-  error: string | null; onHelp: () => void; hidden: boolean;
+  error: string | null; onHelp: () => void; hidden: boolean; onSupport: () => void;
 }) {
   const [draft] = useState(readDraft);
   const [prompt, setPrompt] = useState(draft.prompt ?? "");
@@ -291,6 +308,7 @@ function Home({ health, onStart, lastTrip, onOpenLast, mode, setMode, paused, to
         <img src="/logo-white.png" alt="waylo" className="home-logo" />
         <div className="home-top-actions">
           <button className="pill glass-subtle" onClick={onHelp}><Icon name="info" size={16} /> Как это работает</button>
+          <button className="pill glass-subtle" onClick={onSupport}><Icon name="support" size={16} /> Поддержка</button>
           <GlassIcon name={paused ? "play" : "pause"} label={paused ? "Включить фоновое видео" : "Остановить фоновое видео"} onClick={togglePause} size="sm" />
           {lastTrip && <GlassIcon name="user" label="Моя последняя поездка" onClick={onOpenLast} />}
         </div>
@@ -378,7 +396,6 @@ function Home({ health, onStart, lastTrip, onOpenLast, mode, setMode, paused, to
       </section>
 
       <footer className="home-foot">
-        <AgentStatus health={health} mode={mode} setMode={setMode} />
         {error && <div className="toast error" role="alert"><Icon name="alert" size={17} /> <span>{error}</span></div>}
       </footer>
     </div>

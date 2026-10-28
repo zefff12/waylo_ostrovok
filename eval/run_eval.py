@@ -87,6 +87,12 @@ CASES = [
      lambda t: (t["params"]["origin"] == "kazan" and t["params"]["nights"] == 3 and len(t["days"]) > 0, "план с датами и городом из ответа")),
     ("Переспрашивает до полной картины", ["хочу в москву", "с 30 октября по 4 ноября"],
      lambda t: (t["status"] == "need_info" and not t["days"] and t["params"]["nights"] == 5, "после неполного ответа — снова вопрос")),
+    ("Ответ без «из» и голым числом", ["хочу в москву", "нижний новгород. 60000"],
+     lambda t: (t["params"]["destination"] == "moscow" and t["params"]["origin"] == "nizhny"
+                and t["params"]["budget_rub"] == 60000 and t["status"] == "need_info", "город отправления и бюджет из ответа")),
+    ("Бюджет снят — план пересобран", ["Москва с 30 октября по 4 ноября из Нижнего Новгорода, двое взрослых, бюджет 60 000",
+                                       "ну окей бюджет не ограниченный"],
+     lambda t: (t["budget"]["limit"] is None and not any(c["code"] == "over_budget" for c in t["connections"]), "лимит снят, нет превышения")),
     ("Бюджет соблюдён", ["Петербург с 5 по 8 декабря из Москвы вдвоём, бюджет 45 000"],
      lambda t: (t["budget"]["total"] <= 45000, "итог не выше лимита")),
     ("Покупка", ["Казань на 3 дня"], None),  # проверяется checkout ниже
@@ -128,7 +134,7 @@ def main() -> None:
                     clar += 1
                     # агент уточняет даты и город отправления; в однострочных кейсах отвечаем как пользователь,
                     # которому всё равно, — и проверяем уже собранный план
-                    if trip["params"]["destination"] and not trip["days"] and name not in ("Уточняющие вопросы", "Ответ на уточнение", "Переспрашивает до полной картины"):
+                    if trip["params"]["destination"] and not trip["days"] and name not in ("Уточняющие вопросы", "Ответ на уточнение", "Переспрашивает до полной картины", "Ответ без «из» и голым числом"):
                         r = c.post("/api/chat", json={"trip_id": trip_id, "user_id": f"eval_{len(rows)}",
                                                       "message": "На ваше усмотрение", "mode": mode})
                         r.raise_for_status()

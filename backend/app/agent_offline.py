@@ -9,7 +9,7 @@ from datetime import date, timedelta
 
 from . import planner
 from .data import CITIES
-from .parser import is_vague, parse_command, parse_request
+from .parser import is_vague, parse_answer, parse_command, parse_request
 from .planner import rub
 from .schemas import Trip
 from .walks import CAT_RU
@@ -29,7 +29,7 @@ def handle(trip: Trip, text: str, profile: dict | None = None) -> str:
         planner.plan_trip(trip)
         return describe_plan(trip, intro=f"Отлично, {CITIES[chosen].name}. Собрал поездку:")
 
-    parsed = parse_request(text)
+    parsed = parse_answer(text, trip)  # учитываем, на какие вопросы отвечает пользователь
     new_city = parsed.get("destination")
     if trip.days and (not new_city or new_city == trip.params.destination):
         cmds = parse_command(text)

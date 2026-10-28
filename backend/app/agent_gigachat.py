@@ -19,7 +19,7 @@ from pathlib import Path
 import httpx
 
 from . import planner
-from .agent_tools import SYSTEM, TOOLS, begin_turn, execute
+from .agent_tools import SYSTEM, TOOLS, begin_turn, clarification_reply, execute, fallback_reply
 from .schemas import Trip
 
 log = logging.getLogger("waylo.gigachat")
@@ -140,7 +140,12 @@ def handle(trip: Trip, text: str, messages: list, profile: dict | None = None) -
         content += f"\n\n[Память о прошлых поездках пользователя: {json.dumps(profile, ensure_ascii=False)}. Учитывай, если уместно, и скажи об этом.]"
     if trip.days:
         content += f"\n\n[Состояние: поездка уже собрана, город {trip.params.destination}, {len(trip.days)} дн. Меняй точечно.]"
-    begin_turn(text)
+    early, note = begin_turn(trip, text)
+    if early:  # уточнение идёт без модели: вопросы задаёт планировщик
+        messages += [{"role": "user", "content": content}, {"role": "assistant", "content": early}]
+        return early
+    if note:
+        content += f"\n\n[{note}]"
     messages.append({"role": "user", "content": content})
     with _client() as client:
         for _ in range(MAX_STEPS):
@@ -174,4 +179,7 @@ def handle(trip: Trip, text: str, messages: list, profile: dict | None = None) -
                 planner.log_tool(trip, call.get("name", "?"), f"ошибка: {e}", ok=False)
                 out = {"error": f"Ошибка инструмента: {e}"}
             messages.append({"role": "function", "name": call["name"], "content": _json_result(out)})
-    return "Я сделал много шагов подряд и остановился. Посмотрите план справа и уточните, что поменять."
+            if "need_clarification" in out:  # данных не хватает — заканчиваем ход вопросом, а не новыми вызовами
+                messages.append({"role": "assistant", "content": out["text"]})
+                return out["text"]
+    return fallback_reply(trip)

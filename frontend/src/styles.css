@@ -570,6 +570,38 @@ button.gicon:active:not(:disabled) { transform: scale(.93); }
 .guest-doc { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: end; }
 .guest-doc > small { padding-bottom: 14px; font-size: var(--fs-xs); }
 
+/* поддержка */
+.support .form { gap: 12px; }
+.support select, .support textarea, .thread-form textarea { font: inherit; border: 1px solid rgba(11, 23, 56, .14); border-radius: var(--r-sm); padding: 12px 14px; background: #fff; }
+.support textarea, .thread-form textarea { resize: vertical; }
+.support-tabs { margin: 4px 0 14px; width: 100%; }
+.support-tabs button { flex: 1; }
+.tickets { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ticket { width: 100%; text-align: left; display: grid; gap: 3px; padding: 12px 14px; border-radius: var(--r-sm); background: rgba(255, 255, 255, .8); border: 1px solid rgba(11, 23, 56, .08); font-size: var(--fs-sm); }
+.ticket:hover { background: #fff; }
+.tstatus { justify-self: start; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 3px 8px; border-radius: 999px; background: #FFF6E6; color: #8a5300; }
+.tstatus.s-answered { background: #DDF6EC; color: var(--ok); }
+.tstatus.s-closed { background: rgba(11, 23, 56, .06); color: var(--muted); }
+.support-done { display: grid; justify-items: center; text-align: center; gap: 8px; padding: 16px 0; }
+.thread { display: grid; gap: 10px; }
+.thread .link { justify-self: start; display: inline-flex; align-items: center; gap: 4px; }
+.thread-msgs { display: grid; gap: 8px; }
+.tmsg { border-radius: var(--r-sm); padding: 10px 12px; background: rgba(11, 23, 56, .04); max-width: 92%; }
+.tmsg.user { justify-self: end; background: #E9EEFF; }
+.tmsg p { margin: 4px 0 0; white-space: pre-wrap; font-size: var(--fs-sm); }
+.tmsg small { color: var(--muted); font-size: 11px; }
+.thread-form { display: grid; gap: 8px; }
+.thread-form .btn { justify-self: start; }
+
+/* страница поддержки для сотрудника */
+.admin { max-width: 860px; margin: 0 auto; padding: 24px 16px 60px; display: grid; gap: 14px; }
+.admin-head { display: flex; align-items: center; gap: 14px; }
+.admin-head img { height: 22px; }
+.admin-head h1 { font-size: var(--fs-lg); margin: 0; flex: 1; }
+.admin-login { max-width: 420px; }
+.admin-ticket { display: grid; gap: 8px; }
+.admin-ticket-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; transition-duration: .01ms !important; }
 }
@@ -608,6 +640,7 @@ button.gicon:active:not(:disabled) { transform: scale(.93); }
   .home-hero p { font-size: var(--fs-md); }
   .search textarea { font-size: var(--fs-md); }
   .search-fields { grid-template-columns: 1fr; }
+  .home-top-actions .pill { padding-left: 10px; padding-right: 10px; }
   .guest-grid, .guest-doc { grid-template-columns: 1fr; }
   .guest-doc > small { padding-bottom: 0; }
   .sfield-dates input { min-width: 0; font-size: var(--fs-sm); }

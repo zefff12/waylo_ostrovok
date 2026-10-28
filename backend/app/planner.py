@@ -488,7 +488,7 @@ def shift_dates(trip: Trip, days: int) -> dict:
 
 def set_constraints(trip: Trip, pets: bool | None = None, children: int | None = None, budget_rub: int | None = None,
                     adults: int | None = None, priority: str | None = None, walking: str | None = None,
-                    nights: int | None = None) -> dict:
+                    nights: int | None = None, clear_budget: bool = False) -> dict:
     """Новые жёсткие ограничения: пересобираем только то, что они затрагивают."""
     before = _snapshot(trip)
     p = trip.params
@@ -502,8 +502,12 @@ def set_constraints(trip: Trip, pets: bool | None = None, children: int | None =
     if adults is not None and adults != p.adults:
         p.adults = adults
         changed.append("число гостей")
-    if budget_rub is not None:
+    if budget_rub is not None and budget_rub != p.budget_rub:
         p.budget_rub = budget_rub
+        changed.append("бюджет")
+    if clear_budget and p.budget_rub is not None:
+        p.budget_rub = None
+        p.known = list(dict.fromkeys([*p.known, "budget_none"]))
         changed.append("бюджет")
     if priority:
         p.priority = priority  # type: ignore[assignment]
@@ -537,6 +541,15 @@ def set_constraints(trip: Trip, pets: bool | None = None, children: int | None =
         for d in trip.days:
             d.less_walking = p.walking == "low"
             walks.reselect_day(trip, d, keep=list(d.place_ids)[:3] if d.less_walking else list(d.place_ids))
+    if "бюджет" in changed:
+        # новый лимит: заново берём лучшие по рейтингу дорогу и отель и только потом ужимаемся под бюджет —
+        # иначе при росте бюджета план остался бы «экономным», а при снятии лимита ничего бы не поменялось
+        ok_t = [o for o in trip.transport_options if o.pets_allowed or not p.pets] or trip.transport_options
+        if ok_t and trip.hotel_options:
+            trip.selected_transport_id, trip.selected_hotel_id = ok_t[0].id, trip.hotel_options[0].id
+            _rewindow(trip)
+            for d in trip.days:
+                walks.optimize_order(trip, d)
     recompute(trip)
     if "бюджет" in changed:
         fit_budget(trip)
@@ -545,8 +558,9 @@ def set_constraints(trip: Trip, pets: bool | None = None, children: int | None =
         h, t = trip.hotel(), trip.transport()
         e.details.append(f"Проверил: в «{h.name if h else '—'}» можно с животными, "
                          f"{'поезд допускает провоз' if t and t.pets_allowed else 'транспорт — уточните правила перевозчика'}")
-    if "бюджет" in changed and p.budget_rub:
-        e.details.append(f"Лимит {rub(p.budget_rub)}: " + (f"превышение {rub(trip.budget.over_by)}" if trip.budget.over_by else "укладываемся"))
+    if "бюджет" in changed:
+        e.details.append(f"Лимит {rub(p.budget_rub)}: " + (f"превышение {rub(trip.budget.over_by)}" if trip.budget.over_by else "укладываемся")
+                         if p.budget_rub else "Лимит бюджета снят — выбраны лучшие по рейтингу дорога и отель")
     log_tool(trip, "set_constraints", e.summary)
     return {"changes": e.details, **summary(trip)}
 
