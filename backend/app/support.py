@@ -1,7 +1,7 @@
 """Обращения в поддержку: пользователь пишет из интерфейса, сотрудник отвечает на /support-admin.
 
-Хранятся в той же SQLite, что и поездки. Браузер держит копию своих обращений и при синхронизации
-возвращает их, если сервер их потерял (на бесплатном Render база живёт до перезапуска).
+Хранятся в той же базе, что и поездки. Браузер держит копию своих обращений и при синхронизации
+возвращает их, если сервер их не знает.
 """
 from __future__ import annotations
 
@@ -9,12 +9,13 @@ import json
 import os
 import random
 import string
+import time
 from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .store import _conn, _lock
+from .db import connect
 
 TOPICS = ("trip", "payment", "bug", "other")
 
@@ -40,35 +41,29 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="minutes")
 
 
-def _table(c) -> None:
-    c.execute("CREATE TABLE IF NOT EXISTS support (id TEXT PRIMARY KEY, user_id TEXT, data TEXT)")
-
-
 def save(t: Ticket) -> Ticket:
-    with _lock, _conn() as c:
-        _table(c)
-        c.execute("REPLACE INTO support (id, user_id, data) VALUES (?,?,?)", (t.id, t.user_id, t.model_dump_json()))
+    with connect() as c:
+        c.execute("INSERT INTO support (id, user_id, data, updated) VALUES (?,?,?,?) ON CONFLICT (id) DO UPDATE "
+                  "SET user_id=excluded.user_id, data=excluded.data, updated=excluded.updated",
+                  (t.id, t.user_id, t.model_dump_json(), time.time()))
     return t
 
 
 def get(ticket_id: str) -> Ticket | None:
-    with _lock, _conn() as c:
-        _table(c)
-        row = c.execute("SELECT data FROM support WHERE id=?", (ticket_id,)).fetchone()
+    with connect() as c:
+        row = c.one("SELECT data FROM support WHERE id=?", (ticket_id,))
     return Ticket.model_validate_json(row[0]) if row else None
 
 
 def by_user(user_id: str) -> list[Ticket]:
-    with _lock, _conn() as c:
-        _table(c)
-        rows = c.execute("SELECT data FROM support WHERE user_id=? ORDER BY rowid DESC", (user_id,)).fetchall()
+    with connect() as c:
+        rows = c.all("SELECT data FROM support WHERE user_id=? ORDER BY updated DESC", (user_id,))
     return [Ticket.model_validate_json(r[0]) for r in rows]
 
 
 def all_tickets() -> list[Ticket]:
-    with _lock, _conn() as c:
-        _table(c)
-        rows = c.execute("SELECT data FROM support ORDER BY rowid DESC LIMIT 500").fetchall()
+    with connect() as c:
+        rows = c.all("SELECT data FROM support ORDER BY updated DESC LIMIT 500")
     return [Ticket.model_validate_json(r[0]) for r in rows]
 
 

@@ -602,6 +602,26 @@ button.gicon:active:not(:disabled) { transform: scale(.93); }
 .admin-ticket { display: grid; gap: 8px; }
 .admin-ticket-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 
+/* окна поддержки и профиля одной высоты на любой вкладке */
+.sheet.support, .sheet.profile { height: min(700px, 92dvh); }
+.sheet-body { display: grid; gap: 12px; align-content: start; }
+.profile-login { margin: -4px 0 0; font-size: var(--fs-sm); }
+.profile .logout { justify-self: start; margin-top: 6px; color: var(--muted); }
+.passengers { display: grid; gap: 12px; }
+.passenger { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 14px; border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, .8); border: 1px solid rgba(11, 23, 56, .08); font-size: var(--fs-sm); }
+.passenger > div:first-child { display: grid; gap: 2px; }
+.passenger-actions { display: flex; gap: 12px; flex: none; }
+.link.danger { color: var(--bad); }
+.login-gate { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; }
+.login-gate > div { display: grid; gap: 2px; }
+.saved-pick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { border: 1px solid rgba(6, 69, 245, .25); background: #EEF2FF; color: var(--ink); border-radius: 999px; padding: 6px 12px; font-size: var(--fs-xs); font-weight: 700; }
+.chip:hover { background: #E1E8FF; }
+.not-found { align-items: flex-start; text-align: left; gap: 10px; max-width: 760px; }
+.not-found h2 { margin: 0; font-size: var(--fs-xl); }
+.not-found p { margin: 0; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; transition-duration: .01ms !important; }
 }
@@ -640,6 +660,8 @@ button.gicon:active:not(:disabled) { transform: scale(.93); }
   .home-hero p { font-size: var(--fs-md); }
   .search textarea { font-size: var(--fs-md); }
   .search-fields { grid-template-columns: 1fr; }
+  .login-gate { grid-template-columns: auto 1fr; }
+  .login-gate .btn { grid-column: 1 / -1; }
   .home-top-actions .pill { padding-left: 10px; padding-right: 10px; }
   .guest-grid, .guest-doc { grid-template-columns: 1fr; }
   .guest-doc > small { padding-bottom: 0; }

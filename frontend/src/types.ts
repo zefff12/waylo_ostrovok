@@ -62,6 +62,7 @@ export interface Trip {
   hotel_options: Hotel[]; selected_transport_id: string | null; selected_hotel_id: string | null;
   places: Place[]; days: DayPlan[]; budget: Budget; connections: ConnectionCheck[]; changes: ChangeEntry[];
   tool_log: ToolEvent[]; order: Order | null;
+  budget_gap: { limit: number; min_total: number; over_by: number; fewer_nights: { nights: number; total: number } | null } | null;
 }
 
 export interface ChatMsg { role: "user" | "assistant"; text: string; agent?: string; at: string }
@@ -76,3 +77,12 @@ export interface Ticket {
   id: string; user_id: string; topic: "trip" | "payment" | "bug" | "other"; contact: string | null; trip_id: string | null;
   status: "open" | "answered" | "closed"; created_at: string; messages: SupportMessage[];
 }
+
+export interface Account { id: string; login: string; last_name: string; first_name: string }
+export interface SavedGuest { id: string; last: string; first: string; middle: string; birth: string; doc: string; doc_kind: string }
+export interface TripCard {
+  id: string; city: string | null; status: Trip["status"]; start_date: string | null; nights: number | null;
+  adults: number; children: number; total: number | null;
+  order: { order_id: string; created_at: string; total: number; payment: string | null; post_purchase: string[] } | null;
+}
+export interface Me { account: Account; trips: TripCard[]; orders: TripCard[]; guests: SavedGuest[] }

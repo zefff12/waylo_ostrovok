@@ -1,34 +1,36 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { SavedGuest } from "../types";
 import { Icon } from "./Icons";
 
 /**
  * Данные путешественников для брони: ФИО, дата рождения и документ.
  * Документ выбирается сам: за границу — загранпаспорт, по России — паспорт РФ,
- * детям до 14 лет — свидетельство о рождении. На сервер уходит только замаскированный номер.
+ * детям до 14 лет — свидетельство о рождении. Пассажиров из профиля можно подставить одним нажатием.
  */
 export type GuestDraft = { last: string; first: string; middle: string; birth: string; doc: string };
 export type GuestOut = { full_name: string; birth_date: string; document: string; child: boolean };
 
 type DocKind = { label: string; placeholder: string; rx: RegExp; hint: string; format: (v: string) => string };
 
-const PASSPORT: DocKind = {
+export const PASSPORT: DocKind = {
   label: "Паспорт РФ", placeholder: "1234 567890", rx: /^\d{4} \d{6}$/, hint: "Серия и номер: 10 цифр",
   format: (v) => { const d = v.replace(/\D/g, "").slice(0, 10); return d.length > 4 ? `${d.slice(0, 4)} ${d.slice(4)}` : d; },
 };
-const FOREIGN: DocKind = {
+export const FOREIGN: DocKind = {
   label: "Загранпаспорт", placeholder: "75 1234567", rx: /^\d{2} \d{7}$/, hint: "Серия и номер: 9 цифр",
   format: (v) => { const d = v.replace(/\D/g, "").slice(0, 9); return d.length > 2 ? `${d.slice(0, 2)} ${d.slice(2)}` : d; },
 };
-const BIRTH: DocKind = {
+export const BIRTH: DocKind = {
   label: "Свидетельство о рождении", placeholder: "IV-МЮ 123456", rx: /^[IVXLC]{1,4}-[А-ЯЁ]{2} \d{6}$/,
   hint: "Римские цифры, две буквы и 6 цифр: IV-МЮ 123456",
   format: (v) => v.toUpperCase().replace(/[^IVXLCА-ЯЁ0-9\- ]/g, "").slice(0, 14),
 };
+export const DOC_KINDS = [PASSPORT, FOREIGN, BIRTH];
+export const NAME_RX = /^[А-ЯЁA-Z][а-яёa-z'-]+(?:[ -][А-ЯЁA-Z][а-яёa-z'-]+)*$/;
 
 const EMPTY: GuestDraft = { last: "", first: "", middle: "", birth: "", doc: "" };
-const STORE = "waylo_guests_v1";
 
-function ageAt(birth: string, at: string): number {
+export function ageAt(birth: string, at: string): number {
   const b = new Date(birth + "T00:00"), d = new Date(at + "T00:00");
   let a = d.getFullYear() - b.getFullYear();
   if (d.getMonth() < b.getMonth() || (d.getMonth() === b.getMonth() && d.getDate() < b.getDate())) a--;
@@ -41,31 +43,20 @@ function docKind(g: GuestDraft, abroad: boolean, tripStart: string, child: boole
   return ageAt(g.birth, tripStart) < 14 ? BIRTH : PASSPORT;
 }
 
-export function loadGuests(): GuestDraft[] {
-  try { return JSON.parse(localStorage.getItem(STORE) ?? "[]"); } catch { return []; }
-}
-
-export function forgetGuests() {
-  try { localStorage.removeItem(STORE); } catch { /* приватный режим */ }
-}
-
-export function GuestsForm({ adults, kids, abroad, tripStart, onValid }: {
-  adults: number; kids: number; abroad: boolean; tripStart: string; onValid: (g: GuestOut[] | null) => void;
+export function GuestsForm({ adults, kids, abroad, tripStart, saved, onValid }: {
+  adults: number; kids: number; abroad: boolean; tripStart: string; saved: SavedGuest[];
+  onValid: (g: GuestOut[] | null, drafts: (GuestDraft & { doc_kind: string })[], remember: boolean) => void;
 }) {
   const total = adults + kids;
-  const [guests, setGuests] = useState<GuestDraft[]>(() => {
-    const saved = loadGuests();
-    return Array.from({ length: total }, (_, i) => ({ ...EMPTY, ...saved[i] }));
-  });
+  const [guests, setGuests] = useState<GuestDraft[]>(() => Array.from({ length: total }, () => ({ ...EMPTY })));
   const [remember, setRemember] = useState(true);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
   const errorsOf = (g: GuestDraft, i: number) => {
     const e: Partial<Record<keyof GuestDraft, string>> = {};
-    const name = /^[А-ЯЁA-Z][а-яёa-z'-]+(?:[ -][А-ЯЁA-Z][а-яёa-z'-]+)*$/;
-    if (!name.test(g.last.trim())) e.last = "Фамилия как в документе";
-    if (!name.test(g.first.trim())) e.first = "Имя как в документе";
-    if (g.middle.trim() && !name.test(g.middle.trim())) e.middle = "Проверьте отчество";
+    if (!NAME_RX.test(g.last.trim())) e.last = "Фамилия как в документе";
+    if (!NAME_RX.test(g.first.trim())) e.first = "Имя как в документе";
+    if (g.middle.trim() && !NAME_RX.test(g.middle.trim())) e.middle = "Проверьте отчество";
     const child = i >= adults;
     if (!g.birth) e.birth = "Укажите дату рождения";
     else {
@@ -80,16 +71,13 @@ export function GuestsForm({ adults, kids, abroad, tripStart, onValid }: {
   };
 
   useEffect(() => {
-    if (remember) { try { localStorage.setItem(STORE, JSON.stringify(guests)); } catch { /* нет места или приватный режим */ } }
     const ok = guests.every((g, i) => Object.keys(errorsOf(g, i)).length === 0);
-    onValid(ok ? guests.map((g, i) => {
-      const k = docKind(g, abroad, tripStart, i >= adults);
-      return {
-        full_name: [g.last, g.first, g.middle].map((x) => x.trim()).filter(Boolean).join(" "),
-        birth_date: g.birth, child: i >= adults,
-        document: `${k.label} •••• ${g.doc.replace(/\s/g, "").slice(-4)}`,  // полный номер остаётся в браузере
-      };
-    }) : null);
+    const drafts = guests.map((g, i) => ({ ...g, doc_kind: docKind(g, abroad, tripStart, i >= adults).label }));
+    onValid(ok ? guests.map((g, i) => ({
+      full_name: [g.last, g.first, g.middle].map((x) => x.trim()).filter(Boolean).join(" "),
+      birth_date: g.birth, child: i >= adults,
+      document: `${drafts[i].doc_kind} •••• ${g.doc.replace(/\s/g, "").slice(-4)}`,  // в заказ — только последние цифры
+    })) : null, drafts, remember);
   }, [guests, remember, abroad, tripStart]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (i: number, k: keyof GuestDraft, v: string) =>
@@ -97,11 +85,24 @@ export function GuestsForm({ adults, kids, abroad, tripStart, onValid }: {
   const show = (i: number, k: string) => touched[`${i}.${k}`];
   const touch = (i: number, k: string) => setTouched((t) => ({ ...t, [`${i}.${k}`]: true }));
 
+  // подставить пассажира из профиля: документ — только если его тип подходит этой поездке
+  const pick = (i: number, s: SavedGuest) => {
+    const g = { last: s.last, first: s.first, middle: s.middle, birth: s.birth, doc: "" };
+    const need = docKind(g, abroad, tripStart, i >= adults);
+    g.doc = s.doc_kind === need.label ? s.doc : "";
+    setGuests((gs) => gs.map((x, j) => (j === i ? g : x)));
+    setTouched((t) => ({ ...t, ...Object.fromEntries(["last", "first", "middle", "birth", "doc"].map((k) => [`${i}.${k}`, true])) }));
+  };
+  const used = useMemo(() => new Set(guests.map((g) => `${g.last}|${g.first}|${g.birth}`)), [guests]);
+
   return (
     <div className="guests">
       {guests.map((g, i) => {
         const e = errorsOf(g, i);
         const k = docKind(g, abroad, tripStart, i >= adults);
+        // взрослому месту — только взрослые на дату поездки, детскому — только дети
+        const options = saved.filter((s) => !used.has(`${s.last}|${s.first}|${s.birth}`)
+          && (ageAt(s.birth, tripStart) >= 18) === (i < adults));
         const field = (key: keyof GuestDraft, label: string, extra: Record<string, unknown> = {}) => (
           <label className={`field ${show(i, key) && e[key] ? "invalid" : ""}`}>
             <span>{label}</span>
@@ -113,6 +114,16 @@ export function GuestsForm({ adults, kids, abroad, tripStart, onValid }: {
         return (
           <fieldset key={i} className="guest">
             <legend><Icon name="user" size={16} /> {i < adults ? `Взрослый ${i + 1}` : `Ребёнок ${i - adults + 1}`}</legend>
+            {options.length > 0 && (
+              <div className="saved-pick" role="group" aria-label="Сохранённые пассажиры">
+                <small className="muted">Из профиля:</small>
+                {options.map((s) => (
+                  <button key={s.id} type="button" className="chip" onClick={() => pick(i, s)}>
+                    {s.last} {s.first}<span className="muted"> · {new Date(s.birth + "T00:00").toLocaleDateString("ru-RU")}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="guest-grid">
               {field("last", "Фамилия", { placeholder: "Иванова", maxLength: 40 })}
               {field("first", "Имя", { placeholder: "Анна", maxLength: 40 })}
@@ -131,8 +142,8 @@ export function GuestsForm({ adults, kids, abroad, tripStart, onValid }: {
         );
       })}
       <label className="agree">
-        <input type="checkbox" checked={remember} onChange={(e) => { setRemember(e.target.checked); if (!e.target.checked) forgetGuests(); }} />
-        <span>Запомнить данные гостей на этом устройстве. Они хранятся только в браузере; на сервер уходят ФИО, дата рождения и последние 4 цифры документа.</span>
+        <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+        <span>Сохранить пассажиров в профиль — в следующий раз их можно будет подставить одним нажатием.</span>
       </label>
     </div>
   );

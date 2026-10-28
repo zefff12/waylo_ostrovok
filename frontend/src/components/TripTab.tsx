@@ -27,9 +27,10 @@ export function SectionTitle({ icon, title, hint }: { icon: IconName; title: str
   );
 }
 
-export function TripTab({ trip, busy, city, onDestination, onTransport, onHotel }: {
+export function TripTab({ trip, busy, city, onDestination, onTransport, onHotel, onSend }: {
   trip: Trip; busy: boolean; city: string;
   onDestination: (city: string) => void; onTransport: (id: string) => void; onHotel: (id: string) => void;
+  onSend: (text: string) => void;
 }) {
   if (trip.status === "choose_destination" || (!trip.days.length && trip.destination_options.length)) {
     return (
@@ -53,6 +54,7 @@ export function TripTab({ trip, busy, city, onDestination, onTransport, onHotel 
       </section>
     );
   }
+  if (trip.budget_gap) return <NotFound gap={trip.budget_gap} city={city} busy={busy} onSend={onSend} />;
   if (!trip.days.length) return <section className="state card-solid"><Icon name="chat" size={26} /><b>План ещё не собран</b><span className="muted">Уточните запрос в чате — агент соберёт поездку.</span></section>;
 
   const t = trip.transport_options.find((o) => o.id === trip.selected_transport_id);
@@ -178,3 +180,28 @@ function BudgetBar({ trip }: { trip: Trip }) {
   );
 }
 
+
+/** В бюджет не поместился ни один вариант: план не показываем, предлагаем, что поменять. */
+function NotFound({ gap, city, busy, onSend }: {
+  gap: NonNullable<Trip["budget_gap"]>; city: string; busy: boolean; onSend: (text: string) => void;
+}) {
+  const up = Math.ceil(gap.min_total / 1000) * 1000;
+  return (
+    <section className="state card-solid not-found">
+      <span className="gicon gicon-md as-icon"><Icon name="search" size={19} /></span>
+      <h2>С бюджетом {rub(gap.limit)} ничего не найдено</h2>
+      <p className="muted">Самый дешёвый вариант поездки{city ? ` в направлении «${city}»` : ""} — дорога, отель, питание и билеты — стоит {rub(gap.min_total)},
+        на {rub(gap.over_by)} больше бюджета.</p>
+      <div className="clarify-actions">
+        <button className="btn primary" disabled={busy} onClick={() => onSend(`бюджет ${up}`)}>Увеличить бюджет до {rub(up)}</button>
+        {gap.fewer_nights && (
+          <button className="btn" disabled={busy} onClick={() => onSend(`сократи поездку до ${gap.fewer_nights!.nights} ночей`)}>
+            Сократить до {gap.fewer_nights.nights} ноч. · около {rub(gap.fewer_nights.total)}
+          </button>
+        )}
+        <button className="btn" disabled={busy} onClick={() => onSend("бюджет не ограничен")}>Без ограничения бюджета</button>
+      </div>
+      <small className="muted">Можно и по-другому: напишите агенту другие даты или город.</small>
+    </section>
+  );
+}

@@ -1,4 +1,4 @@
-"""Замер качества агента на наборе тестовых запросов (раздел 19.7 ТЗ v2).
+"""Замер качества агента на наборе тестовых запросов.
 
 Запуск из корня проекта:
     uv run --project backend python eval/run_eval.py            # офлайн-агент
@@ -27,7 +27,7 @@ from app.main import PROVIDERS, app, provider  # noqa: E402
 
 # (название, [реплики пользователя], проверка итоговой поездки -> (ok, комментарий))
 CASES = [
-    ("СПб из ТЗ (5 дней, 45к)", ["Хочу на пять дней в Санкт-Петербург в ноябре. Бюджет — 45 000 рублей на двоих. Любим красивые улицы, необычные кафе, музеи и атмосферные места для фотографий. Хотим жить недалеко от центра"],
+    ("СПб на 5 дней, 45к", ["Хочу на пять дней в Санкт-Петербург в ноябре. Бюджет — 45 000 рублей на двоих. Любим красивые улицы, необычные кафе, музеи и атмосферные места для фотографий. Хотим жить недалеко от центра"],
      lambda t: (len(t["days"]) == 5 and t["budget"]["limit"] == 45000, "5 дней и лимит 45 000")),
     ("Демо-сценарий: правка дня 2", ["Трёхдневная поездка в Петербург, бюджет 40 тысяч, архитектура, музеи и необычные кафе",
                                       "На второй день хочу меньше ходить и заменить одну достопримечательность на кафе"],
@@ -43,7 +43,7 @@ CASES = [
     ("Сдвиг дат", ["Нижний Новгород на 3 дня в декабре", "а если на два дня позже?"],
      lambda t: (any("сдвинута" in c["summary"] for c in t["changes"]), "даты сдвинуты без поиска с нуля")),
     ("Бюджет превышен", ["Дубай на неделю вдвоём, бюджет 60 тысяч"],
-     lambda t: (t["budget"]["over_by"] > 0 and len(t["budget"]["savings"]) > 0, "показано превышение и способы экономии")),
+     lambda t: (t["budget_gap"] is not None and t["budget_gap"]["min_total"] > 60000, "«ничего не найдено» и минимальная цена")),
     ("Сделай дешевле", ["Москва на 4 дня, хотим музеи", "сделай дешевле"],
      lambda t: (any(c["summary"] == "Сделали дешевле" for c in t["changes"]), "удешевление выполнено")),
     ("Дождь", ["Петербург на 3 дня", "на второй день дождь"],
@@ -117,6 +117,10 @@ def main() -> None:
     label = "офлайн-агент" if prov == "offline" else f"{prov} · {PROVIDERS[prov][0].MODEL}"
     print(f"Агент: {label}")
     c = TestClient(app)
+    # оплата доступна только из профиля — заводим тестовый
+    auth = c.post("/api/auth/register", json={"login": f"eval{int(time.time())}@waylo.test", "password": "evalpass123",
+                                              "last_name": "Тест", "first_name": "Замер"}).json()
+    H = {"Authorization": f"Bearer {auth['token']}"}
     rows = []
     for name, msgs, check in CASES:
         trip_id, trip, first_rec_ms, clar = None, None, None, 0
@@ -148,10 +152,10 @@ def main() -> None:
                 if name in ("Покупка", "После покупки"):
                     r = c.post(f"/api/trips/{trip_id}/checkout", json={"guests": [{"full_name": f"Иванов Гость {i + 1}", "birth_date": "1990-01-01",
                                                                      "document": "Паспорт РФ •••• 0000"}
-                                                                    for i in range(trip["params"]["adults"] + trip["params"]["children"])]})
+                                                                    for i in range(trip["params"]["adults"] + trip["params"]["children"])]}, headers=H)
                     completed = r.status_code == 200
                     if completed and name == "После покупки":
-                        completed = c.post(f"/api/trips/{trip_id}/extras", json={"kind": "early_checkin"}).status_code == 200
+                        completed = c.post(f"/api/trips/{trip_id}/extras", json={"kind": "early_checkin"}, headers=H).status_code == 200
                     trip = r.json().get("trip", trip)
                 else:
                     completed = True

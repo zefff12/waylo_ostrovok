@@ -4,7 +4,7 @@ services:
     runtime: docker
     plan: free
     region: frankfurt
-    healthCheckPath: /api/health
+    healthCheckPath: /health
     envVars:
       - key: WAYLO_LLM
         value: gigachat
@@ -16,6 +16,9 @@ services:
       - key: GIGACHAT_CREDENTIALS
         sync: false
       - key: YANDEX_JS_API_KEY
+        sync: false
+      # PostgreSQL: адрес базы Render (Internal Database URL), без него данные в SQLite до перезапуска
+      - key: DATABASE_URL
         sync: false
       # ключ для /support-admin: Render сгенерирует его сам, посмотреть — Environment в панели сервиса
       - key: SUPPORT_ADMIN_TOKEN

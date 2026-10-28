@@ -246,6 +246,8 @@ class Trip(BaseModel):
     tool_log: list[ToolEvent] = Field(default_factory=list)
     order: Order | None = None
     data_notes: list[str] = Field(default_factory=list)
+    # бюджет не достижим даже в самом дешёвом варианте: план не показываем, показываем «ничего не найдено»
+    budget_gap: dict | None = None
 
     def transport(self) -> TransportOption | None:
         return next((t for t in self.transport_options if t.id == self.selected_transport_id), None)

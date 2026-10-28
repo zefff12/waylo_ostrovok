@@ -239,6 +239,9 @@ def parse_command(text: str) -> list[tuple[str, dict]]:
             cmds.append(("set_constraints", {"budget_rub": val}))
     if re.search(r"без (ограничени\w* )?бюджет|бюджет\w* (нет|не важ|не огранич|неогранич|любой)|нет бюджет|неограниченн\w* бюджет", low):
         cmds.append(("set_constraints", {"clear_budget": True}))
+    if m := re.search(r"(сократ|уменьш|продл|увелич|сделай|давай)\w*\s+(?:поездку\s+)?до\s+(\d+)\s+(ноч|дн)", low):
+        n = int(m.group(2))
+        cmds.append(("set_constraints", {"nights": n if m.group(3) == "ноч" else max(1, n - 1)}))
     if re.search(r"дешевл|сэконом|подешевле|уложи\w* в бюджет|бюджет меньше|слишком дорого", low) and "отел" not in low:
         cmds.append(("make_cheaper", {}))
     if re.search(r"с нами (едет|поедет)|берем с собой|с собак|собака|с котом|с питомц", low) and not re.search(r"без собак", low):

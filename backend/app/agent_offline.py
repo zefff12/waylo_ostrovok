@@ -125,7 +125,7 @@ def _run_commands(trip: Trip, cmds: list[tuple[str, dict]]) -> str:
             if entry:
                 out.append(f"**{entry.summary}**")
                 out.extend(f"• {d}" for d in entry.details[:6])
-    out.append(_budget_line(trip))
+    out.append(not_found(trip) if trip.budget_gap else _budget_line(trip))
     crit = [c for c in trip.connections if c.level == "critical"]
     if crit:
         out.append(f"**Критично:** {crit[0].text}. {crit[0].fix or ''}")
@@ -156,7 +156,21 @@ def _budget_line(trip: Trip) -> str:
     return f"**Бюджет:** {rub(b.total)} (лимит не задан)"
 
 
+def not_found(trip: Trip) -> str:
+    g = trip.budget_gap or {}
+    city = CITIES[trip.params.destination].name  # type: ignore[index]
+    lines = [f"**С бюджетом {rub(g['limit'])} ничего не найдено.** Самый дешёвый вариант ({city}: дорога, отель, еда и билеты) "
+             f"стоит {rub(g['min_total'])} — на {rub(g['over_by'])} больше.",
+             "Что можно сделать:", f"1. Увеличить бюджет до {rub(g['min_total'])}."]
+    if f := g.get("fewer_nights"):
+        lines.append(f"2. Сократить поездку до {f['nights']} ноч. — около {rub(f['total'])} (оценка).")
+    lines.append(f"{len(lines) - 1}. Сдвинуть даты или выбрать другой город — напишите, и я пересоберу.")
+    return "\n".join(lines)
+
+
 def describe_plan(trip: Trip, intro: str) -> str:
+    if trip.budget_gap:
+        return not_found(trip)
     p = trip.params
     city = CITIES[p.destination]  # type: ignore[index]
     s = date.fromisoformat(p.start_date)  # type: ignore[arg-type]

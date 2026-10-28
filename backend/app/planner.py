@@ -80,6 +80,22 @@ def recompute(trip: Trip) -> None:
         walks.route_day(trip, d)
     trip.budget = budget_mod.calc(trip)
     trip.connections = connections.check(trip)
+    trip.budget_gap = budget_gap(trip)
+
+
+def budget_gap(trip: Trip) -> dict | None:
+    """Чего не хватает до бюджета и что можно сделать: на сколько ночей сократить или до какой суммы поднять лимит."""
+    b, p, h = trip.budget, trip.params, trip.hotel()
+    if not (b.limit and b.over_by > 0 and trip.days):
+        return None
+    city = CITIES[p.destination]  # type: ignore[index]
+    per_night = (h.price_per_night if h else 0) + int(city.food_per_person_day * (p.adults + p.children * 0.6))
+    fewer = None
+    if per_night and p.nights and p.nights > 1:
+        cut = -(-b.over_by // per_night)  # округление вверх
+        if cut < p.nights:
+            fewer = {"nights": p.nights - cut, "total": b.total - cut * per_night}
+    return {"limit": b.limit, "min_total": b.total, "over_by": b.over_by, "fewer_nights": fewer}
 
 
 # ---------- параметры ----------
@@ -321,6 +337,10 @@ def summary(trip: Trip) -> dict:
                    "savings": trip.budget.savings},
         "connections": [c.model_dump() for c in trip.connections if c.level != "ok"],
         "assumptions": trip.params.assumptions,
+        **({"budget_not_met": {**trip.budget_gap, "instruction": (
+            "В бюджет пользователя не нашлось ни одного варианта. Не описывай план как найденный: скажи, что с бюджетом "
+            f"{rub(trip.budget_gap['limit'])} ничего не найдено, самый дешёвый вариант стоит {rub(trip.budget_gap['min_total'])}, "
+            "и предложи увеличить бюджет, сократить число ночей или сдвинуть даты.")}} if trip.budget_gap else {}),
     }
 
 

@@ -9,7 +9,7 @@ import contextvars
 from datetime import date
 
 from . import planner, walks
-from .parser import parse_answer, parse_request
+from .parser import parse_answer, parse_command, parse_request
 from .data import CITIES
 from .schemas import Trip
 
@@ -33,7 +33,7 @@ SYSTEM = f"""Ты — Waylo, ИИ-агент для планирования п�
 - Цены, наличие, погоду и часы работы бери только из результатов инструментов. Ничего не выдумывай.
 - Поле kind: confirmed — данные внешнего API, estimate — расчёт или кэш, demo — синтетика. Отели всегда демо — так и говори.
 - Для каждой рекомендации коротко: почему подходит, чем пожертвовали, какой риск.
-- Бюджет пользователя — жёсткий лимит. Инструменты сами подбирают варианты в его пределах; не выбирай отель или транспорт, из-за которых он превышается. Если уложиться нельзя даже в самом дешёвом варианте — прямо скажи, сколько не хватает, и предложи: сократить ночи, сдвинуть даты или увеличить бюджет.
+- Бюджет пользователя — жёсткий лимит. Инструменты сами подбирают варианты в его пределах; не выбирай отель или транспорт, из-за которых он превышается. Если в результате есть budget_not_met — значит, в бюджет не нашлось ничего: так и скажи («с бюджетом N ничего не найдено»), назови минимальную стоимость и предложи увеличить бюджет, сократить ночи или сдвинуть даты. План при этом не описывай.
 - Критичные проблемы состыковки — обязательно скажи о них и предложи решение.
 - Реальных покупок и бронирований нет: оформление — демо во вкладке «Оформление».
 - Интерфейс уже показывает карточки, карту и бюджет. В чате пиши кратко: 4–8 строк, по-русски, можно **жирный** и списки. Без таблиц. Никаких эмодзи и пиктограмм: вместо них — короткие подписи жирным («**Отель:** …»).
@@ -176,6 +176,10 @@ def begin_turn(trip: Trip, text: str) -> tuple[str | None, str]:
         elif facts.get("budget_rub") and facts["budget_rub"] != p.budget_rub:
             planner.set_constraints(trip, budget_rub=facts["budget_rub"])
             note = f"Новый бюджет {planner.rub(facts['budget_rub'])} уже применён, план пересобран."
+        cmd = next((a for k, a in parse_command(text) if k == "set_constraints" and "nights" in a), None)
+        if cmd and cmd["nights"] != p.nights:
+            planner.set_constraints(trip, nights=cmd["nights"])
+            note += f" Поездка уже изменена на {cmd['nights']} ноч., план пересобран."
         return None, note
     if p.destination and trip.status == "need_info":  # идёт уточнение: применяем ответ и спрашиваем остальное сами
         planner.apply_params(trip, _merge_facts({}, facts), known=list(facts))

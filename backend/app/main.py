@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
-from . import agent_gigachat, agent_llm, agent_offline, connections, integrations, planner, store, support  # noqa: E402
+from . import accounts, agent_gigachat, agent_llm, agent_offline, connections, db, integrations, planner, store, support  # noqa: E402
 from .data import CITIES  # noqa: E402
 from .schemas import Guest, Order, Trip  # noqa: E402
 
@@ -128,6 +128,14 @@ def _note_ui(histories: dict, user_text: str, reply: str) -> None:
             msgs.append({"role": "assistant", "content": reply})
 
 
+@app.get("/health")
+def liveness() -> dict:
+    """Проверка живости для docker compose и Render: отвечает, если сервер поднят и база доступна."""
+    with db.connect() as c:
+        c.one("SELECT 1")
+    return {"status": "ok", "db": db.kind()}
+
+
 @app.get("/api/health")
 def health() -> dict:
     p = provider()
@@ -209,6 +217,109 @@ class SupportReplyIn(BaseModel):
 class SupportSyncIn(BaseModel):
     user_id: str = Field(min_length=1, max_length=40)
     tickets: list[support.Ticket] = Field(default_factory=list, max_length=50)
+
+
+class RegisterIn(BaseModel):
+    login: str = Field(min_length=5, max_length=120)
+    password: str = Field(min_length=8, max_length=128)
+    last_name: str = Field(min_length=1, max_length=40)
+    first_name: str = Field(min_length=1, max_length=40)
+    device_id: str | None = Field(default=None, max_length=40)
+
+
+class LoginIn(BaseModel):
+    login: str = Field(min_length=3, max_length=120)
+    password: str = Field(min_length=1, max_length=128)
+    device_id: str | None = Field(default=None, max_length=40)
+
+
+def _bearer(authorization: str | None) -> str | None:
+    return authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else None
+
+
+def _account(authorization: str | None) -> accounts.Account:
+    acc = accounts.by_token(_bearer(authorization))
+    if not acc:
+        raise HTTPException(401, "Войдите в профиль, чтобы продолжить")
+    return acc
+
+
+def _auth_out(acc: accounts.Account, token: str, device_id: str | None) -> dict:
+    # поездки, собранные на этом устройстве до входа, переносятся в профиль
+    if device_id and not device_id.startswith("acc_"):
+        store.reassign(device_id, acc.id)
+    return {"token": token, "account": acc.model_dump(exclude={"created"})}
+
+
+NAME_RX = re.compile(r"^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё' -]{0,39}$")
+
+
+@app.post("/api/auth/register")
+def register(body: RegisterIn) -> dict:
+    login = accounts.normalize_login(body.login)
+    if not login:
+        raise HTTPException(422, "Укажите e-mail или российский номер телефона")
+    if not (NAME_RX.match(body.last_name.strip()) and NAME_RX.match(body.first_name.strip())):
+        raise HTTPException(422, "Фамилия и имя — только буквы")
+    if not (re.search(r"[A-Za-zА-Яа-я]", body.password) and re.search(r"\d", body.password)):
+        raise HTTPException(422, "Пароль: от 8 символов, буквы и цифры")
+    try:
+        acc, token = accounts.register(login, body.password, body.last_name.strip(), body.first_name.strip())
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    return _auth_out(acc, token, body.device_id)
+
+
+@app.post("/api/auth/login")
+def login(body: LoginIn) -> dict:
+    try:
+        acc, token = accounts.login(accounts.normalize_login(body.login) or body.login.strip().lower(), body.password)
+    except PermissionError as e:
+        raise HTTPException(401, str(e))
+    return _auth_out(acc, token, body.device_id)
+
+
+@app.post("/api/auth/logout")
+def logout(authorization: str | None = Header(default=None)) -> dict:
+    if token := _bearer(authorization):
+        accounts.logout(token)
+    return {"ok": True}
+
+
+def _trip_card(t: Trip) -> dict:
+    p = t.params
+    return {"id": t.id, "city": CITIES[p.destination].name if p.destination in CITIES else None, "status": t.status,
+            "start_date": p.start_date if t.days else None, "nights": p.nights if t.days else None,
+            "adults": p.adults, "children": p.children, "total": t.budget.total if t.days else None,
+            "order": t.order.model_dump(include={"order_id", "created_at", "total", "payment", "post_purchase"}) if t.order else None}
+
+
+@app.get("/api/me")
+def me(authorization: str | None = Header(default=None)) -> dict:
+    acc = _account(authorization)
+    trips = [_trip_card(t) for t in store.trips_of(acc.id)]
+    return {"account": acc.model_dump(exclude={"created"}), "trips": [t for t in trips if t["city"]],
+            "orders": [t for t in trips if t["order"]], "guests": [g.model_dump() for g in accounts.guests(acc.id)]}
+
+
+@app.post("/api/me/guests")
+def save_guest(body: accounts.Guest, authorization: str | None = Header(default=None)) -> dict:
+    return accounts.save_guest(_account(authorization).id, body).model_dump()
+
+
+@app.delete("/api/me/guests/{guest_id}")
+def delete_guest(guest_id: str, authorization: str | None = Header(default=None)) -> dict:
+    accounts.delete_guest(_account(authorization).id, guest_id)
+    return {"ok": True}
+
+
+def _own_trip(trip: Trip, acc: accounts.Account) -> None:
+    """Оплачивать можно только свою поездку; собранная до входа на этом устройстве становится своей."""
+    if trip.user_id == acc.id:
+        return
+    if trip.user_id.startswith("acc_"):
+        raise HTTPException(403, "Эта поездка принадлежит другому профилю")
+    trip.user_id = acc.id
 
 
 @app.post("/api/support")
@@ -338,9 +449,11 @@ def modify_day(trip_id: str, day: int, body: DayIn) -> dict:
 
 
 @app.post("/api/trips/{trip_id}/checkout")
-def checkout(trip_id: str, body: CheckoutIn) -> dict:
+def checkout(trip_id: str, body: CheckoutIn, authorization: str | None = Header(default=None)) -> dict:
     """Демо-оформление: никаких платежей и бронирований, только сводка и номер заказа с пометкой DEMO."""
+    acc = _account(authorization)
     trip, messages, chat_log = _get(trip_id)
+    _own_trip(trip, acc)
     if not trip.days:
         raise HTTPException(400, "Поездка ещё не собрана")
     trip.connections = connections.check(trip)
@@ -366,8 +479,10 @@ def checkout(trip_id: str, body: CheckoutIn) -> dict:
 
 
 @app.post("/api/trips/{trip_id}/extras")
-def extras(trip_id: str, body: ExtraIn) -> dict:
+def extras(trip_id: str, body: ExtraIn, authorization: str | None = Header(default=None)) -> dict:
+    acc = _account(authorization)
     trip, messages, chat_log = _get(trip_id)
+    _own_trip(trip, acc)
     if trip.status != "purchased" or not trip.order:
         raise HTTPException(400, "Доступно после оформления")
     r = planner.add_extra(trip, body.kind)

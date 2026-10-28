@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, modelLabel, type TripResponse } from "./api";
-import type { ChatMsg, Health, Trip } from "./types";
+import { api, loadAuth, modelLabel, saveAuth, type Auth, type TripResponse } from "./api";
+import type { ChatMsg, Health, SavedGuest, Trip } from "./types";
 import { Chat } from "./components/Chat";
 import { TripTab } from "./components/TripTab";
 import { WalksTab } from "./components/WalksTab";
@@ -10,6 +10,8 @@ import { GlassIcon, Icon, type IconName } from "./components/Icons";
 import { Onboarding, Splash, introSeen } from "./components/Intro";
 import { Markdown } from "./components/Markdown";
 import { SupportSheet } from "./components/Support";
+import { ProfileSheet } from "./components/Profile";
+import type { GuestDraft, GuestOut } from "./components/GuestsForm";
 
 const EXAMPLES = [
   "Хочу на пять дней в Санкт-Петербург в ноябре. Бюджет — 45 000 рублей на двоих. Любим красивые улицы, необычные кафе, музеи и атмосферные места для фотографий. Хотим жить недалеко от центра и не проводить весь отпуск в транспорте",
@@ -77,7 +79,11 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>(saved?.tab ?? "trip");
   const [mode, setMode] = useState<"auto" | "offline">(saved?.mode ?? "auto");
-  const [user] = useState(userId);
+  const [device] = useState(userId);
+  const [auth, setAuth] = useState<Auth | null>(loadAuth);
+  const user = auth?.account.id ?? device;  // после входа поездки и обращения привязываются к профилю
+  const [profile, setProfile] = useState<{ reason?: string } | null>(null);
+  const [savedGuests, setSavedGuests] = useState<SavedGuest[]>([]);
   const [lastTrip, setLastTrip] = useState<string | null>(null);
   const [paused, setPaused] = useState(readPaused);
   const [chatOpen, setChatOpen] = useState(false);
@@ -134,12 +140,27 @@ export default function App() {
   const start = (text: string) => { setTab("trip"); setIntro(null); send(text); };
   const reset = () => { setTrip(null); setChat([]); setError(null); setChatOpen(false); };
   const splashDone = useCallback(() => setIntro("onboarding"), []);
+  const closeProfile = useCallback(() => setProfile(null), []);
+  const onAuth = (a: Auth) => { saveAuth(a); setAuth(a); setProfile(null); };
+  const onLogout = () => { saveAuth(null); setAuth(null); setSavedGuests([]); };
+  const openTrip = (id: string) => { setProfile(null); setTab("trip"); run(() => api.trip(id)); };
+
+  // сохранённые пассажиры нужны при оформлении — подтягиваем их из профиля
+  useEffect(() => {
+    if (auth && tab === "checkout") api.me().then((m) => setSavedGuests(m.guests)).catch(() => undefined);
+  }, [auth, tab]);
+
+  const checkout = async (tripId: string, guests: GuestOut[], card: string, toSave: (GuestDraft & { doc_kind: string })[]) => {
+    await Promise.all(toSave.map((g) => api.saveGuest({ ...g, last: g.last.trim(), first: g.first.trim(), middle: g.middle.trim() })
+      .catch(() => undefined)));  // пассажир не сохранился — оплате это не мешает
+    return api.checkout(tripId, guests, card);
+  };
   const closeSupport = useCallback(() => setSupportOpen(false), []);
   const cityNames = useMemo(() => Object.fromEntries((health?.cities ?? []).map((c) => [c.id, c.name])), [health]);
   const abroad = (health?.cities.find((c) => c.id === trip?.params.destination)?.country ?? "Россия") !== "Россия";
   const home = !trip && !chat.length;
   const scene = sceneFor(trip, health);
-  const tripReady = Boolean(trip?.days.length);
+  const tripReady = Boolean(trip?.days.length) && !trip?.budget_gap;  // нет варианта в бюджет — нечего гулять и оплачивать
 
   return (
     <>
@@ -148,7 +169,7 @@ export default function App() {
         <Home health={health} onStart={start} lastTrip={lastTrip}
           onOpenLast={() => lastTrip && run(() => api.trip(lastTrip))} mode={mode} setMode={setMode}
           paused={paused} togglePause={togglePause} error={error} onHelp={() => setIntro("onboarding")} hidden={intro !== null}
-          onSupport={() => setSupportOpen(true)} />
+          onSupport={() => setSupportOpen(true)} onProfile={() => setProfile({})} authName={auth?.account.first_name ?? null} />
       ) : (
         <div className="app">
           <header className="topbar glass-light">
@@ -163,6 +184,7 @@ export default function App() {
             </nav>
             <div className="topbar-end">
               <AgentStatus health={health} mode={mode} setMode={setMode} compact />
+              <GlassIcon name="user" label={auth ? "Профиль" : "Войти"} onClick={() => setProfile({})} size="sm" active={Boolean(auth)} />
               <GlassIcon name="support" label="Поддержка" onClick={() => setSupportOpen(true)} size="sm" />
               <GlassIcon name={paused ? "play" : "pause"} label={paused ? `Включить видео (${SCENE_LABEL[scene]})` : "Остановить фоновое видео"}
                 onClick={togglePause} size="sm" />
@@ -178,11 +200,12 @@ export default function App() {
                   {tab === "trip" && <TripTab trip={trip} busy={busy} city={cityNames[trip.params.destination ?? ""] ?? ""}
                     onDestination={(c) => run(() => api.destination(trip.id, c))}
                     onTransport={(id) => run(() => api.transport(trip.id, id))}
-                    onHotel={(id) => run(() => api.hotel(trip.id, id))} />}
+                    onHotel={(id) => run(() => api.hotel(trip.id, id))} onSend={send} />}
                   {tab === "walks" && <WalksTab trip={trip} busy={busy}
                     onDay={(d, a, extra) => run(() => api.day(trip.id, d, a, extra))} />}
-                  {tab === "checkout" && <CheckoutTab trip={trip} busy={busy} abroad={abroad}
-                    onCheckout={(g, card) => run(() => api.checkout(trip.id, g, card))}
+                  {tab === "checkout" && <CheckoutTab trip={trip} busy={busy} abroad={abroad} auth={auth} saved={savedGuests}
+                    onLogin={() => setProfile({ reason: "Чтобы оплатить поездку, войдите в профиль или создайте его." })}
+                    onCheckout={(g, card, toSave) => run(() => checkout(trip.id, g, card, toSave))}
                     onExtra={(k, card) => run(() => api.extras(trip.id, k, card))} />}
                 </>
               ) : <Loading busy={busy} />}
@@ -202,6 +225,8 @@ export default function App() {
           </nav>
         </div>
       )}
+      {profile && <ProfileSheet auth={auth} device={device} reason={profile.reason} onAuth={onAuth} onLogout={onLogout}
+        onOpenTrip={openTrip} onClose={closeProfile} />}
       {supportOpen && <SupportSheet user={user} tripId={trip?.id ?? null} onClose={closeSupport} />}
       {intro === "splash" && <Splash onDone={splashDone} />}
       {intro === "onboarding" && <Onboarding onFinish={() => setIntro(null)} onTry={start} />}
@@ -266,10 +291,10 @@ function Loading({ busy }: { busy: boolean }) {
   );
 }
 
-function Home({ health, onStart, lastTrip, onOpenLast, paused, togglePause, error, onHelp, hidden, onSupport }: {
+function Home({ health, onStart, paused, togglePause, error, onHelp, hidden, onSupport, onProfile, authName }: {
   health: Health | null; onStart: (t: string) => void; lastTrip: string | null; onOpenLast: () => void;
   mode: "auto" | "offline"; setMode: (m: "auto" | "offline") => void; paused: boolean; togglePause: () => void;
-  error: string | null; onHelp: () => void; hidden: boolean; onSupport: () => void;
+  error: string | null; onHelp: () => void; hidden: boolean; onSupport: () => void; onProfile: () => void; authName: string | null;
 }) {
   const [draft] = useState(readDraft);
   const [prompt, setPrompt] = useState(draft.prompt ?? "");
@@ -310,7 +335,7 @@ function Home({ health, onStart, lastTrip, onOpenLast, paused, togglePause, erro
           <button className="pill glass-subtle" onClick={onHelp}><Icon name="info" size={16} /> Как это работает</button>
           <button className="pill glass-subtle" onClick={onSupport}><Icon name="support" size={16} /> Поддержка</button>
           <GlassIcon name={paused ? "play" : "pause"} label={paused ? "Включить фоновое видео" : "Остановить фоновое видео"} onClick={togglePause} size="sm" />
-          {lastTrip && <GlassIcon name="user" label="Моя последняя поездка" onClick={onOpenLast} />}
+          <button className="pill glass-subtle" onClick={onProfile}><Icon name="user" size={16} /> {authName ?? "Войти"}</button>
         </div>
       </header>
 

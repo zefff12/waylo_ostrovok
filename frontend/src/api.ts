@@ -1,4 +1,4 @@
-import type { ChatMsg, Health, Ticket, Trip } from "./types";
+import type { Account, ChatMsg, Health, Me, SavedGuest, Ticket, Trip } from "./types";
 
 // Ход агента с несколькими вызовами LLM укладывается в минуту-две; дольше — считаем, что запрос потерян,
 // чтобы интерфейс не висел в «агент думает» (например, после ухода во вкладку и возврата).
@@ -22,7 +22,21 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-const post = <T,>(path: string, body: unknown) => call<T>(path, { method: "POST", body: JSON.stringify(body) });
+// Токен сессии профиля: хранится в браузере, уходит в заголовке Authorization.
+const AUTH = "waylo_auth_v1";
+export type Auth = { token: string; account: Account };
+export function loadAuth(): Auth | null {
+  try { return JSON.parse(localStorage.getItem(AUTH) ?? "null"); } catch { return null; }
+}
+export function saveAuth(a: Auth | null) {
+  try { if (a) localStorage.setItem(AUTH, JSON.stringify(a)); else localStorage.removeItem(AUTH); } catch { /* приватный режим */ }
+}
+const authHeaders = (): Record<string, string> => {
+  const a = loadAuth();
+  return { "Content-Type": "application/json", ...(a ? { Authorization: `Bearer ${a.token}` } : {}) };
+};
+
+const post = <T,>(path: string, body: unknown) => call<T>(path, { method: "POST", body: JSON.stringify(body), headers: authHeaders() });
 
 export type TripResponse = { trip: Trip; chat: ChatMsg[] };
 export type ChatResponse = TripResponse & { reply: string; agent: string; elapsed_ms: number };
@@ -45,6 +59,12 @@ export const api = {
     post<TripResponse>(`/api/trips/${id}/days/${day}`, { action, ...extra }),
   checkout: (id: string, guests: unknown[], card?: string) => post<TripResponse>(`/api/trips/${id}/checkout`, { guests, card }),
   restore: (trip: Trip, chat: ChatMsg[]) => post<TripResponse>("/api/trips/restore", { trip, chat }),
+  register: (b: { login: string; password: string; last_name: string; first_name: string; device_id: string }) => post<Auth>("/api/auth/register", b),
+  login: (b: { login: string; password: string; device_id: string }) => post<Auth>("/api/auth/login", b),
+  logout: () => post<{ ok: boolean }>("/api/auth/logout", {}),
+  me: () => call<Me>("/api/me", { headers: authHeaders() }),
+  saveGuest: (g: Omit<SavedGuest, "id"> & { id?: string }) => post<SavedGuest>("/api/me/guests", g),
+  deleteGuest: (id: string) => call<{ ok: boolean }>(`/api/me/guests/${id}`, { method: "DELETE", headers: authHeaders() }),
   support: (b: { user_id: string; topic: string; text: string; contact?: string; trip_id?: string | null }) => post<Ticket>("/api/support", b),
   supportSync: (user_id: string, tickets: Ticket[]) => post<{ tickets: Ticket[] }>("/api/support/sync", { user_id, tickets }),
   supportMessage: (id: string, user_id: string, text: string) => post<Ticket>(`/api/support/${id}/messages`, { user_id, text }),

@@ -8,5 +8,4 @@ backend/waylo.sqlite3
 **/__pycache__
 .claude
 .git
-docs
 eval
